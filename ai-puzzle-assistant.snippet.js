@@ -26,14 +26,21 @@
   // API-ключ хранится в клиентском JavaScript.
   // Не публикуйте этот файл и не передавайте его другим людям.
   const CONFIG = {
-    apiKey: 'sk-', // <-- Вставьте сюда API-ключ DeepSeek.
+    apiKey: '[SECRET_REMOVED]', // <-- Вставьте сюда API-ключ DeepSeek.
     apiUrl: 'https://api.deepseek.com/v1/chat/completions',
     model: 'deepseek-chat',
     hotkey: {
-      ctrl: true,
+      ctrl: false,
       shift: true,
       alt: false,
       key: 'Y',
+    },
+    toggleHotkey: {
+      enabled: true,
+      ctrl: false,
+      shift: true,
+      alt: false,
+      key: 'Q',
     },
     maxSelectedTextLength: 10000,
     maxTokens: 2000,
@@ -70,7 +77,21 @@
     '6. Если существуют варианты ответа, укажи правильный вариант.',
     '7. Итоговый ответ помести в конце отдельной строкой.',
     '8. Если данных недостаточно, точно укажи, каких данных не хватает.',
-    '9. Отвечай на русском языке.',
+    '9. Отвечай на том языке на котором была задача или вопрос.',
+  ].join('\n');
+
+  const VERIFY_PROMPT = [
+    'Ты - внимательный проверяющий ИИ.',
+    'Пользователь передает исходную задачу и предыдущий ответ ИИ.',
+    'Твоя задача - заново решить задачу независимо от предыдущего ответа, затем сравнить результат.',
+    '',
+    'Правила:',
+    '1. Не доверяй предыдущему ответу автоматически.',
+    '2. Проверь все условия задачи.',
+    '3. Если предыдущий ответ верный, коротко подтверди это и объясни почему.',
+    '4. Если предыдущий ответ неверный или неполный, укажи ошибку и дай правильное решение.',
+    '5. Итоговый проверенный ответ помести в конце отдельной строкой.',
+    '6. Отвечай на том языке на котором была задача или вопрос.',
   ].join('\n');
 
   const DEFAULT_SETTINGS = {
@@ -84,7 +105,9 @@
 
   const state = {
     isLoading: false,
+    isHidden: false,
     lastSelectedText: '',
+    lastAnswer: '',
     abortController: null,
     settings: loadSettings(),
     host: null,
@@ -189,9 +212,7 @@
         max-height: calc(100vh - 12px);
         color: #111827;
         background: #ffffff;
-        border: 1px solid #d8dee8;
         border-radius: 8px;
-        box-shadow: 0 18px 44px rgba(15, 23, 42, 0.18);
         animation: aiAssistantIn 120ms ease-out;
       }
 
@@ -214,7 +235,6 @@
         cursor: move;
         user-select: none;
         background: #f4f7fb;
-        border-bottom: 1px solid #d8dee8;
       }
 
       .title {
@@ -507,7 +527,13 @@
     const solveButton = document.createElement('button');
     solveButton.type = 'button';
     solveButton.className = 'button primary';
-    solveButton.textContent = 'Решить выделенное';
+    solveButton.textContent = 'Решить';
+
+    const verifyButton = document.createElement('button');
+    verifyButton.type = 'button';
+    verifyButton.className = 'button';
+    verifyButton.textContent = 'Проверить';
+    verifyButton.disabled = true;
 
     const clearButton = document.createElement('button');
     clearButton.type = 'button';
@@ -532,7 +558,7 @@
 
     opacityControl.append(opacityLabel, opacityInput);
     header.append(title, opacityControl, collapseButton, closeButton);
-    actions.append(solveButton, clearButton, cancelButton);
+    actions.append(solveButton, verifyButton, clearButton, cancelButton);
     content.append(status, actions, answer);
     panel.append(header, content, resizeHandle);
     shadowRoot.append(panel);
@@ -553,6 +579,7 @@
       resizeHandle,
       solveButton,
       status,
+      verifyButton,
     };
 
     [collapseButton, closeButton, opacityInput].forEach((element) => {
@@ -570,6 +597,8 @@
     });
     solveButton.addEventListener('mousedown', (event) => event.preventDefault());
     solveButton.addEventListener('click', solveSelectedText);
+    verifyButton.addEventListener('mousedown', (event) => event.preventDefault());
+    verifyButton.addEventListener('click', verifyLastAnswer);
     clearButton.addEventListener('click', clearAnswer);
     cancelButton.addEventListener('click', cancelRequest);
     opacityInput.addEventListener('input', updateOpacity);
@@ -767,13 +796,23 @@
   }
 
   function isHotkeyPressed(event) {
-    const hotkey = CONFIG.hotkey;
-    const keyMatches = String(event.key || '').toUpperCase() === String(hotkey.key || '').toUpperCase();
+    return isShortcutPressed(event, CONFIG.hotkey);
+  }
+
+  function isToggleHotkeyPressed(event) {
+    return CONFIG.toggleHotkey?.enabled && isShortcutPressed(event, CONFIG.toggleHotkey);
+  }
+
+  function isShortcutPressed(event, shortcut) {
+    const expectedKey = String(shortcut.key || '').toUpperCase();
+    const eventKey = String(event.key || '').toUpperCase();
+    const eventCode = String(event.code || '').toUpperCase();
+    const keyMatches = eventKey === expectedKey || (expectedKey.length === 1 && eventCode === `KEY${expectedKey}`);
     return (
       keyMatches &&
-      event.ctrlKey === Boolean(hotkey.ctrl) &&
-      event.shiftKey === Boolean(hotkey.shift) &&
-      event.altKey === Boolean(hotkey.alt)
+      event.ctrlKey === Boolean(shortcut.ctrl) &&
+      event.shiftKey === Boolean(shortcut.shift) &&
+      event.altKey === Boolean(shortcut.alt)
     );
   }
 
@@ -785,19 +824,27 @@
 
   function handleKeyDown(event) {
     if (event.repeat) return;
-    if (!isHotkeyPressed(event)) return;
 
     const shadowActiveElement = state.shadowRoot?.activeElement || null;
     if (CONFIG.ignoreHotkeyInEditable && (isEditableTarget(event.target) || isEditableTarget(shadowActiveElement))) {
       return;
     }
 
+    if (isToggleHotkeyPressed(event)) {
+      event.preventDefault();
+      event.stopPropagation();
+      toggleVisibility();
+      return;
+    }
+
+    if (!isHotkeyPressed(event)) return;
+
     event.preventDefault();
     event.stopPropagation();
     solveSelectedText();
   }
 
-  async function requestDeepSeek(text) {
+  async function requestDeepSeek(text, previousAnswer = '') {
     state.abortController = new AbortController();
     const timeoutId = window.setTimeout(() => {
       if (state.abortController) state.abortController.abort();
@@ -813,16 +860,7 @@
         },
         body: JSON.stringify({
           model: CONFIG.model,
-          messages: [
-            {
-              role: 'system',
-              content: SYSTEM_PROMPT,
-            },
-            {
-              role: 'user',
-              content: text,
-            },
-          ],
+          messages: createRequestMessages(text, previousAnswer),
           max_tokens: CONFIG.maxTokens,
           temperature: CONFIG.temperature,
         }),
@@ -868,6 +906,40 @@
     }
   }
 
+  function createRequestMessages(text, previousAnswer) {
+    if (!previousAnswer) {
+      return [
+        {
+          role: 'system',
+          content: SYSTEM_PROMPT,
+        },
+        {
+          role: 'user',
+          content: text,
+        },
+      ];
+    }
+
+    return [
+      {
+        role: 'system',
+        content: VERIFY_PROMPT,
+      },
+      {
+        role: 'user',
+        content: [
+          'Исходная задача:',
+          text,
+          '',
+          'Предыдущий ответ ИИ:',
+          previousAnswer,
+          '',
+          'Перепроверь решение. Если предыдущий ответ верный, подтверди. Если неверный, дай правильный ответ.',
+        ].join('\n'),
+      },
+    ];
+  }
+
   function getHttpErrorMessage(status) {
     const messages = {
       400: 'HTTP 400: некорректный запрос к DeepSeek API.',
@@ -902,8 +974,9 @@
     }
 
     state.lastSelectedText = selectedText;
+    state.lastAnswer = '';
     state.isLoading = true;
-    setLoadingState(true);
+    setLoadingState(true, 'solve');
     setStatus('Отправляю задачу в DeepSeek...');
     safeLog('Текст подготовлен');
 
@@ -920,9 +993,52 @@
     }
   }
 
-  function setLoadingState(isLoading) {
+  async function verifyLastAnswer() {
+    if (state.isLoading) {
+      setStatus('Предыдущий запрос ещё выполняется.', 'error');
+      return;
+    }
+
+    const taskText = state.lastSelectedText || getCurrentSelection();
+    if (!taskText) {
+      showError('Не найден исходный текст задачи. Сначала выделите задачу и нажмите «Решить».');
+      return;
+    }
+
+    if (!state.lastAnswer) {
+      showError('Сначала получите ответ, который нужно проверить.');
+      return;
+    }
+
+    const validationError = validateSelectedText(taskText);
+    if (validationError) {
+      showError(validationError);
+      return;
+    }
+
+    const answerToVerify = state.lastAnswer;
+    state.isLoading = true;
+    setLoadingState(true, 'verify');
+    setStatus('Перепроверяю ответ в DeepSeek...');
+
+    try {
+      const verifiedAnswer = await requestDeepSeek(taskText, answerToVerify);
+      showAnswer(verifiedAnswer);
+      setStatus('Проверка завершена.', 'success');
+    } catch (error) {
+      safeLog('Ошибка запроса');
+      showError(error?.message || 'Неизвестная ошибка.');
+    } finally {
+      state.isLoading = false;
+      setLoadingState(false);
+    }
+  }
+
+  function setLoadingState(isLoading, mode = '') {
     state.elements.solveButton.disabled = isLoading;
-    state.elements.solveButton.textContent = isLoading ? 'Решаю...' : 'Решить выделенное';
+    state.elements.verifyButton.disabled = isLoading || !state.lastAnswer;
+    state.elements.solveButton.textContent = isLoading && mode === 'solve' ? 'Решаю...' : 'Решить';
+    state.elements.verifyButton.textContent = isLoading && mode === 'verify' ? 'Проверяю...' : 'Проверить';
     state.elements.cancelButton.hidden = !isLoading;
   }
 
@@ -940,7 +1056,9 @@
   }
 
   function showAnswer(text) {
+    state.lastAnswer = text;
     state.elements.answer.textContent = text;
+    setLoadingState(false);
   }
 
   function showError(error) {
@@ -948,18 +1066,37 @@
   }
 
   function clearAnswer() {
+    state.lastAnswer = '';
     state.elements.answer.textContent = '';
+    setLoadingState(false);
     setStatus('Готово. Выделите текст задачи.');
   }
 
   function show() {
     if (!state.host) return;
+    state.isHidden = false;
+    state.host.style.display = 'block';
     document.documentElement.append(state.host);
     state.host.style.zIndex = String(MAX_Z_INDEX);
     state.settings.collapsed = false;
     applyCollapsedState();
     clampWindowToViewport();
     setStatus(state.isLoading ? 'Отправляю задачу в DeepSeek...' : 'Готово. Выделите текст задачи.');
+  }
+
+  function hide() {
+    if (!state.host) return;
+    state.isHidden = true;
+    state.host.style.display = 'none';
+  }
+
+  function toggleVisibility() {
+    if (state.isHidden) {
+      show();
+      return;
+    }
+
+    hide();
   }
 
   function isMounted() {
@@ -1009,6 +1146,8 @@
 
     window[GLOBAL_KEY] = {
       show,
+      hide,
+      toggleVisibility,
       destroy,
       isMounted,
     };
