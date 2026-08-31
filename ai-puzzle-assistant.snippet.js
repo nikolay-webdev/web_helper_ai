@@ -56,28 +56,19 @@
   const DEFAULT_WINDOW_WIDTH = 420;
   const MIN_WINDOW_WIDTH = 320;
   const MIN_WINDOW_HEIGHT = 250;
+  const PAGE_HIGHLIGHT_STYLE_ID = 'ai-puzzle-assistant-page-highlight-style';
+  const PAGE_HIGHLIGHT_CLASS = 'ai-puzzle-assistant-correct-option';
 
   const SYSTEM_PROMPT = [
-    'Ты - внимательный ИИ-помощник по решению задач.',
-    'Пользователь передает текст, который может содержать:',
-    '- математическую задачу;',
-    '- логическую головоломку;',
-    '- загадку;',
-    '- вопрос с вариантами ответа;',
-    '- текстовую задачу;',
-    '- задачу на внимательность;',
-    '- несколько связанных заданий.',
+    'Ты - ИИ-помощник по решению заданий.',
+    'Определи правильный ответ, но не показывай ход рассуждений.',
     '',
-    'Требования к ответу:',
-    '1. Определи, что требуется найти или решить.',
-    '2. Не пропускай важные условия.',
-    '3. Решай задачу последовательно и проверяй результат.',
-    '4. Объясняй кратко, понятно и без лишней воды.',
-    '5. Если есть несколько задач, реши каждую отдельно.',
-    '6. Если существуют варианты ответа, укажи правильный вариант.',
-    '7. Итоговый ответ помести в конце отдельной строкой.',
-    '8. Если данных недостаточно, точно укажи, каких данных не хватает.',
-    '9. Отвечай на том языке на котором была задача или вопрос.',
+    'Строгий формат ответа:',
+    '1. Отвечай на языке задания.',
+    '2. Сначала напиши только окончательный ответ.',
+    '3. Если в задании есть варианты ответа, определи один или несколько правильных вариантов и верни точный текст каждого правильного варианта без перефразирования.',
+    '4. Не повторяй окончательный ответ.',
+    '5. После ответа добавь краткое объяснение, почему он верный.',
   ].join('\n');
 
   const VERIFY_PROMPT = [
@@ -107,7 +98,9 @@
     isLoading: false,
     isHidden: false,
     lastSelectedText: '',
+    lastSelectionRange: null,
     lastAnswer: '',
+    highlightedOptions: [],
     abortController: null,
     settings: loadSettings(),
     host: null,
@@ -774,9 +767,23 @@
     return (window.getSelection()?.toString() || '').trim();
   }
 
+  function getCurrentSelectionRange() {
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0 || !selection.toString().trim()) return null;
+
+    try {
+      return selection.getRangeAt(0).cloneRange();
+    } catch (error) {
+      return null;
+    }
+  }
+
   function rememberSelection() {
     const selectedText = getCurrentSelection();
-    if (selectedText) state.lastSelectedText = selectedText;
+    if (!selectedText) return;
+
+    state.lastSelectedText = selectedText;
+    state.lastSelectionRange = getCurrentSelectionRange();
   }
 
   function validateSelectedText(text) {
@@ -959,6 +966,319 @@
     return error instanceof TypeError || message.includes('failed to fetch') || message.includes('networkerror');
   }
 
+  function ensurePageHighlightStyle() {
+    if (document.getElementById(PAGE_HIGHLIGHT_STYLE_ID)) return;
+
+    const style = document.createElement('style');
+    style.id = PAGE_HIGHLIGHT_STYLE_ID;
+    style.textContent = `
+      .${PAGE_HIGHLIGHT_CLASS} {
+        text-decoration-line: underline !important;
+        text-decoration-thickness: 2px !important;
+        text-decoration-color: #9f9f9f !important;
+        text-underline-offset: 4px !important;
+        background: rgb(159 187 249 / 12%) !important;
+        border-radius: 4px !important;
+      }
+    `;
+    document.head.append(style);
+  }
+
+  function clearHighlightedOptions() {
+    state.highlightedOptions.forEach((element) => {
+      element.classList.remove(PAGE_HIGHLIGHT_CLASS);
+      element.removeAttribute('data-ai-puzzle-assistant-highlight');
+    });
+    state.highlightedOptions = [];
+  }
+
+  function highlightCorrectOptions(answerText) {
+    clearHighlightedOptions();
+
+    const answerBlock = getAnswerBlock(answerText);
+    if (!answerBlock) return 0;
+
+    const candidates = getSelectableOptionCandidates();
+    const highlighted = [];
+
+    candidates.forEach((candidate) => {
+      if (!matchesCorrectAnswer(candidate.text, candidate.key, answerBlock)) return;
+
+      candidate.element.classList.add(PAGE_HIGHLIGHT_CLASS);
+      candidate.element.setAttribute('data-ai-puzzle-assistant-highlight', 'true');
+      highlighted.push(candidate.element);
+    });
+
+    state.highlightedOptions = Array.from(new Set(highlighted));
+    if (state.highlightedOptions.length > 0) ensurePageHighlightStyle();
+    return state.highlightedOptions.length;
+  }
+
+  function getSelectableOptionCandidates() {
+    const range = state.lastSelectionRange;
+    const root = getSelectionRoot(range);
+    const selectedText = normalizeOptionText(state.lastSelectedText);
+    const inputs = Array.from(root.querySelectorAll('input[type="radio"], input[type="checkbox"]'));
+    const candidates = [];
+
+    inputs.forEach((input) => {
+      const element = getOptionElement(input);
+      if (!element || !isVisibleElement(element)) return;
+
+      const text = getOptionCandidateText(input, element);
+      if (!text) return;
+
+      const optionText = normalizeOptionText(stripOptionPrefix(text));
+      const isInsideSelection = !range || rangeIntersectsElement(range, input) || rangeIntersectsElement(range, element);
+      const isTextInSelection = optionText && selectedText.includes(optionText);
+
+      if (!isInsideSelection && !isTextInSelection) return;
+
+      candidates.push({
+        element,
+        input,
+        key: getOptionKey(text),
+        text,
+      });
+    });
+
+    if (candidates.length > 0) return candidates;
+    return getTextOptionCandidates(root, range);
+  }
+
+  function getTextOptionCandidates(root, range) {
+    const optionLines = extractSelectedOptionLines(state.lastSelectedText);
+    if (optionLines.length === 0) return [];
+
+    const elements = Array.from(root.querySelectorAll('li, button, [role="button"], [role="radio"], [role="checkbox"], label, p, div, span'));
+    const candidates = [];
+
+    elements.forEach((element) => {
+      if (!isVisibleElement(element)) return;
+      if (range && !rangeIntersectsElement(range, element)) return;
+
+      const text = element.textContent.replace(/\s+/g, ' ').trim();
+      if (!text || text.length > 300) return;
+
+      const matchedOptions = optionLines.filter((option) => isSameOptionText(text, option.raw) || isSameOptionText(text, option.text));
+      if (matchedOptions.length !== 1) return;
+
+      const matchedOption = matchedOptions[0];
+      candidates.push({
+        element,
+        input: null,
+        key: getOptionKey(text) || matchedOption.key,
+        text: matchedOption.text || text,
+      });
+    });
+
+    return keepDeepestOptionElements(candidates);
+  }
+
+  function extractSelectedOptionLines(selectedText) {
+    const lines = String(selectedText || '')
+      .split('\n')
+      .map((line) => line.replace(/\s+/g, ' ').trim())
+      .filter(Boolean);
+
+    const prefixedLines = lines
+      .map((line) => ({
+        key: getOptionKey(line),
+        raw: line,
+        text: stripOptionPrefix(line),
+      }))
+      .filter((option) => option.key && option.text.length > 0 && option.text.length <= 220);
+
+    if (prefixedLines.length > 0) return uniqueOptions(prefixedLines);
+
+    const plainLines = lines
+      .slice(1)
+      .filter((line) => line.length > 0 && line.length <= 220 && !/[?？]\s*$/.test(line))
+      .map((line) => ({
+        key: '',
+        raw: line,
+        text: line,
+      }));
+
+    return uniqueOptions(plainLines);
+  }
+
+  function uniqueOptions(options) {
+    const seen = new Set();
+    return options.filter((option) => {
+      const key = normalizeOptionText(option.text);
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }
+
+  function isSameOptionText(elementText, optionText) {
+    const normalizedElement = normalizeOptionText(stripOptionPrefix(elementText));
+    const normalizedOption = normalizeOptionText(stripOptionPrefix(optionText));
+    if (!normalizedElement || !normalizedOption) return false;
+    if (normalizedElement === normalizedOption) return true;
+
+    const lengthDelta = Math.abs(normalizedElement.length - normalizedOption.length);
+    if (lengthDelta > 30) return false;
+
+    return normalizedElement.includes(normalizedOption) || normalizedOption.includes(normalizedElement);
+  }
+
+  function keepDeepestOptionElements(candidates) {
+    return candidates.filter((candidate) => {
+      return !candidates.some((other) => other !== candidate && candidate.element.contains(other.element));
+    });
+  }
+
+  function getSelectionRoot(range) {
+    if (!range) return document.body;
+
+    let node = range.commonAncestorContainer;
+    if (node.nodeType === Node.TEXT_NODE) node = node.parentElement;
+    if (!(node instanceof Element)) return document.body;
+
+    let root = node;
+    while (root && root !== document.body) {
+      if (root.querySelectorAll('input[type="radio"], input[type="checkbox"]').length > 0) return root;
+      root = root.parentElement;
+    }
+
+    return document.body;
+  }
+
+  function rangeIntersectsElement(range, element) {
+    if (!range || !element) return false;
+
+    try {
+      return range.intersectsNode(element);
+    } catch (error) {
+      return false;
+    }
+  }
+
+  function getOptionElement(input) {
+    if (!input) return null;
+
+    const labelByFor = getLabelByFor(input);
+    if (labelByFor) return labelByFor;
+
+    const closestLabel = input.closest('label');
+    if (closestLabel) return closestLabel;
+
+    const labelledByElement = getElementFromIds(input.getAttribute('aria-labelledby'));
+    if (labelledByElement) return labelledByElement;
+
+    const nextTextElement = getNextTextElement(input);
+    if (nextTextElement) return nextTextElement;
+
+    const parent = input.parentElement;
+    if (parent && parent.querySelectorAll('input[type="radio"], input[type="checkbox"]').length === 1) return parent;
+
+    return null;
+  }
+
+  function getLabelByFor(input) {
+    if (!input.id) return null;
+
+    return Array.from(document.querySelectorAll('label')).find((label) => label.htmlFor === input.id) || null;
+  }
+
+  function getElementFromIds(ids) {
+    if (!ids) return null;
+
+    return ids
+      .split(/\s+/)
+      .map((id) => document.getElementById(id))
+      .find((element) => element && element.textContent.trim()) || null;
+  }
+
+  function getNextTextElement(input) {
+    let sibling = input.nextElementSibling;
+
+    while (sibling) {
+      if (sibling.textContent.trim()) return sibling;
+      sibling = sibling.nextElementSibling;
+    }
+
+    return null;
+  }
+
+  function getOptionCandidateText(input, element) {
+    const ariaLabel = input.getAttribute('aria-label');
+    const text = ariaLabel || element.textContent || input.value || '';
+    return text.replace(/\s+/g, ' ').trim();
+  }
+
+  function getAnswerBlock(answerText) {
+    const lines = String(answerText || '')
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean);
+
+    const answerLines = [];
+    for (const line of lines) {
+      if (/^(объяснение|пояснение|почему|решение|итог|итоговый ответ)\s*[:.-]/i.test(line)) break;
+      answerLines.push(line);
+      if (answerLines.length >= 3) break;
+    }
+
+    return answerLines.join(' ').trim();
+  }
+
+  function matchesCorrectAnswer(optionText, optionKey, answerBlock) {
+    const normalizedAnswer = normalizeOptionText(answerBlock);
+    const normalizedOption = normalizeOptionText(optionText);
+    const normalizedOptionWithoutPrefix = normalizeOptionText(stripOptionPrefix(optionText));
+
+    const textMatches = [normalizedOptionWithoutPrefix, normalizedOption].some((candidate) => {
+      if (!candidate || candidate.length < 2) return false;
+      return normalizedAnswer.includes(candidate) || (candidate.length <= 80 && candidate.includes(normalizedAnswer));
+    });
+
+    if (textMatches) return true;
+    if (!optionKey) return false;
+
+    const escapedKey = escapeRegExp(optionKey);
+    return new RegExp(`(^|[\\s,;:()[\\]{}])${escapedKey}($|[\\s,;:.()[\\]{}])`, 'i').test(answerBlock);
+  }
+
+  function getOptionKey(text) {
+    const match = String(text || '').trim().match(/^([A-ZА-ЯЁ]|\d{1,3})\s*[\).:-]/i);
+    return match ? match[1] : '';
+  }
+
+  function stripOptionPrefix(text) {
+    return String(text || '')
+      .trim()
+      .replace(/^([A-ZА-ЯЁ]|\d{1,3})\s*[\).:-]\s*/i, '')
+      .trim();
+  }
+
+  function normalizeOptionText(text) {
+    return String(text || '')
+      .normalize('NFKC')
+      .toLowerCase()
+      .replace(/ё/g, 'е')
+      .replace(/[“”„«»]/g, '"')
+      .replace(/[‘’]/g, "'")
+      .replace(/[^\p{L}\p{N}]+/gu, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  function escapeRegExp(text) {
+    return String(text).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
+  function isVisibleElement(element) {
+    if (!element) return false;
+
+    const style = window.getComputedStyle(element);
+    if (style.display === 'none' || style.visibility === 'hidden') return false;
+    return element.getClientRects().length > 0;
+  }
+
   async function solveSelectedText() {
     if (state.isLoading) {
       setStatus('Предыдущий запрос ещё выполняется.', 'error');
@@ -967,6 +1287,7 @@
 
     rememberSelection();
     const selectedText = getCurrentSelection() || state.lastSelectedText;
+    const selectedRange = getCurrentSelectionRange() || state.lastSelectionRange;
     const validationError = validateSelectedText(selectedText);
     if (validationError) {
       showError(validationError);
@@ -974,7 +1295,9 @@
     }
 
     state.lastSelectedText = selectedText;
+    state.lastSelectionRange = selectedRange;
     state.lastAnswer = '';
+    clearHighlightedOptions();
     state.isLoading = true;
     setLoadingState(true, 'solve');
     setStatus('Отправляю задачу в DeepSeek...');
@@ -983,7 +1306,8 @@
     try {
       const answer = await requestDeepSeek(selectedText);
       showAnswer(answer);
-      setStatus('Ответ получен.', 'success');
+      const highlightedCount = highlightCorrectOptions(answer);
+      setStatus(highlightedCount > 0 ? `Ответ получен. Подчеркнуто вариантов: ${highlightedCount}.` : 'Ответ получен. Варианты для подчеркивания не найдены.', 'success');
     } catch (error) {
       safeLog('Ошибка запроса');
       showError(error?.message || 'Неизвестная ошибка.');
@@ -1017,6 +1341,7 @@
     }
 
     const answerToVerify = state.lastAnswer;
+    clearHighlightedOptions();
     state.isLoading = true;
     setLoadingState(true, 'verify');
     setStatus('Перепроверяю ответ в DeepSeek...');
@@ -1024,7 +1349,8 @@
     try {
       const verifiedAnswer = await requestDeepSeek(taskText, answerToVerify);
       showAnswer(verifiedAnswer);
-      setStatus('Проверка завершена.', 'success');
+      const highlightedCount = highlightCorrectOptions(verifiedAnswer);
+      setStatus(highlightedCount > 0 ? `Проверка завершена. Подчеркнуто вариантов: ${highlightedCount}.` : 'Проверка завершена. Варианты для подчеркивания не найдены.', 'success');
     } catch (error) {
       safeLog('Ошибка запроса');
       showError(error?.message || 'Неизвестная ошибка.');
@@ -1068,6 +1394,7 @@
   function clearAnswer() {
     state.lastAnswer = '';
     state.elements.answer.textContent = '';
+    clearHighlightedOptions();
     setLoadingState(false);
     setStatus('Готово. Выделите текст задачи.');
   }
@@ -1105,6 +1432,8 @@
 
   function destroy() {
     if (state.abortController) state.abortController.abort();
+    clearHighlightedOptions();
+    document.getElementById(PAGE_HIGHLIGHT_STYLE_ID)?.remove();
     document.removeEventListener('keydown', handleKeyDown, true);
     document.removeEventListener('selectionchange', rememberSelection, true);
     document.removeEventListener('mouseup', rememberSelection, true);
