@@ -1213,17 +1213,28 @@
   function getAnswerBlock(answerText) {
     const lines = String(answerText || '')
       .split('\n')
-      .map((line) => line.trim())
-      .filter(Boolean);
+      .map((line) => line.trim());
 
     const answerLines = [];
     for (const line of lines) {
-      if (/^(объяснение|пояснение|почему|решение|итог|итоговый ответ)\s*[:.-]/i.test(line)) break;
-      answerLines.push(line);
-      if (answerLines.length >= 3) break;
+      if (!line) {
+        if (answerLines.length > 0) break;
+        continue;
+      }
+
+      if (/^(объяснение|пояснение|почему|решение)\s*[:.-]/i.test(line)) break;
+      answerLines.push(stripAnswerPrefix(line));
+      if (answerLines.length >= 8) break;
     }
 
     return answerLines.join(' ').trim();
+  }
+
+  function stripAnswerPrefix(text) {
+    return String(text || '')
+      .trim()
+      .replace(/^(ответ|правильный ответ|итоговый(?: проверенный)? ответ)\s*[:.-]\s*/i, '')
+      .trim();
   }
 
   function matchesCorrectAnswer(optionText, optionKey, answerBlock) {
