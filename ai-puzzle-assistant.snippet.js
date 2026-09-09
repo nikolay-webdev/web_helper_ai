@@ -58,6 +58,7 @@
   const MIN_WINDOW_HEIGHT = 250;
   const PAGE_HIGHLIGHT_STYLE_ID = 'ai-puzzle-assistant-page-highlight-style';
   const PAGE_HIGHLIGHT_CLASS = 'ai-puzzle-assistant-correct-option';
+  const SELECTION_STYLE_ID = 'ai-puzzle-assistant-selection-style';
 
   const SYSTEM_PROMPT = [
     'Ты - ИИ-помощник по решению заданий.',
@@ -90,7 +91,7 @@
     top: 80,
     width: DEFAULT_WINDOW_WIDTH,
     height: null,
-    opacity: 0.92,
+    opacity: 0.4,
     collapsed: false,
   };
 
@@ -981,7 +982,21 @@
         border-radius: 4px !important;
       }
     `;
-    document.head.append(style);
+    (document.head || document.documentElement).append(style);
+  }
+
+  function ensureSelectionStyle() {
+    if (document.getElementById(SELECTION_STYLE_ID)) return;
+
+    const style = document.createElement('style');
+    style.id = SELECTION_STYLE_ID;
+    style.textContent = `
+      ::selection {
+        background: rgb(159 187 249 / 17%) !important;
+        color: inherit !important;
+      }
+    `;
+    (document.head || document.documentElement).append(style);
   }
 
   function clearHighlightedOptions() {
@@ -1412,6 +1427,7 @@
 
   function show() {
     if (!state.host) return;
+    ensureSelectionStyle();
     state.isHidden = false;
     state.host.style.display = 'block';
     document.documentElement.append(state.host);
@@ -1445,6 +1461,7 @@
     if (state.abortController) state.abortController.abort();
     clearHighlightedOptions();
     document.getElementById(PAGE_HIGHLIGHT_STYLE_ID)?.remove();
+    document.getElementById(SELECTION_STYLE_ID)?.remove();
     document.removeEventListener('keydown', handleKeyDown, true);
     document.removeEventListener('selectionchange', rememberSelection, true);
     document.removeEventListener('mouseup', rememberSelection, true);
@@ -1477,6 +1494,7 @@
   }
 
   function init() {
+    ensureSelectionStyle();
     createInterface();
     document.addEventListener('keydown', handleKeyDown, true);
     document.addEventListener('selectionchange', rememberSelection, true);

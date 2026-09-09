@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "AI Puzzle Assistant",
+  "description": "Runs the AI puzzle assistant on the current page.",
+  "version": "1.0.0",
+  "permissions": [
+    "activeTab",
+    "scripting"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "Run AI Puzzle Assistant"
+  },
+  "commands": {
+    "run-assistant": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+7"
+      },
+      "description": "Run AI Puzzle Assistant on the current page"
+    }
+  }
+}
