@@ -7,6 +7,22 @@
     "activeTab",
     "scripting"
   ],
+  "host_permissions": [
+    "https://api.deepseek.com/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "ai-puzzle-hotkeys.js"
+      ],
+      "all_frames": true,
+      "match_about_blank": true,
+      "run_at": "document_start"
+    }
+  ],
   "background": {
     "service_worker": "background.js"
   },
@@ -16,7 +32,7 @@
   "commands": {
     "run-assistant": {
       "suggested_key": {
-        "default": "Ctrl+Shift+7"
+        "default": "Ctrl+Shift+X"
       },
       "description": "Run AI Puzzle Assistant on the current page"
     }

@@ -1,6 +1,115 @@
 (() => {
   'use strict';
 
+  const FRAME_BRIDGE_KEY = '__AI_PUZZLE_ASSISTANT_FRAME_BRIDGE__';
+  const FRAME_HOTKEYS = {
+    default: {
+      ctrl: false,
+      shift: true,
+      alt: false,
+      key: 'Y',
+    },
+    screenshot: {
+      ctrl: false,
+      shift: true,
+      alt: false,
+      key: 'A',
+    },
+    area: {
+      ctrl: false,
+      shift: true,
+      alt: false,
+      key: 'R',
+    },
+    frame: {
+      ctrl: true,
+      shift: true,
+      alt: false,
+      key: 'R',
+    },
+    toggle: {
+      ctrl: false,
+      shift: true,
+      alt: false,
+      key: 'Q',
+    },
+  };
+
+  if (window.top !== window) {
+    installFrameHotkeyBridge();
+    return;
+  }
+
+  function installFrameHotkeyBridge() {
+    window[FRAME_BRIDGE_KEY]?.destroy?.();
+
+    function handleFrameKeyDown(event) {
+      if (event.repeat || isFrameEditableTarget(event.target)) return;
+
+      const action = getFrameHotkeyAction(event);
+      if (!action) return;
+
+      event.preventDefault();
+      event.stopPropagation();
+      sendFrameHotkey(action);
+    }
+
+    window.addEventListener('keydown', handleFrameKeyDown, true);
+    document.addEventListener('keydown', handleFrameKeyDown, true);
+
+    window[FRAME_BRIDGE_KEY] = {
+      destroy() {
+        window.removeEventListener('keydown', handleFrameKeyDown, true);
+        document.removeEventListener('keydown', handleFrameKeyDown, true);
+        window[FRAME_BRIDGE_KEY] = undefined;
+      },
+    };
+  }
+
+  function getFrameHotkeyAction(event) {
+    if (isFrameShortcutPressed(event, FRAME_HOTKEYS.toggle)) return 'toggle';
+    if (isFrameShortcutPressed(event, FRAME_HOTKEYS.frame)) return 'frame';
+    if (isFrameShortcutPressed(event, FRAME_HOTKEYS.area)) return 'area';
+    if (isFrameShortcutPressed(event, FRAME_HOTKEYS.screenshot)) return 'screenshot';
+    if (isFrameShortcutPressed(event, FRAME_HOTKEYS.default)) return 'default';
+    return '';
+  }
+
+  function isFrameShortcutPressed(event, shortcut) {
+    const expectedKey = String(shortcut.key || '').toUpperCase();
+    const eventKey = String(event.key || '').toUpperCase();
+    const eventCode = String(event.code || '').toUpperCase();
+    const keyMatches = eventKey === expectedKey || (expectedKey.length === 1 && eventCode === `KEY${expectedKey}`);
+    return (
+      keyMatches &&
+      event.ctrlKey === Boolean(shortcut.ctrl) &&
+      event.shiftKey === Boolean(shortcut.shift) &&
+      event.altKey === Boolean(shortcut.alt)
+    );
+  }
+
+  function isFrameEditableTarget(target) {
+    if (!target || !(target instanceof Element)) return false;
+    const editable = target.closest('textarea, select, [contenteditable="true"], [contenteditable=""], [contenteditable="plaintext-only"]');
+    if (editable || target.isContentEditable) return true;
+
+    const input = target.closest('input');
+    if (!input) return false;
+
+    const nonTypingTypes = new Set(['button', 'checkbox', 'color', 'file', 'hidden', 'image', 'radio', 'range', 'reset', 'submit']);
+    const inputType = String(input.getAttribute('type') || 'text').toLowerCase();
+    return !nonTypingTypes.has(inputType);
+  }
+
+  function sendFrameHotkey(action) {
+    if (typeof chrome === 'undefined' || !chrome.runtime?.sendMessage) return;
+
+    chrome.runtime.sendMessage({
+      type: 'AI_PUZZLE_FRAME_HOTKEY',
+      action,
+    });
+  }
+
   const existingAssistant = window.__AI_PUZZLE_ASSISTANT__;
   if (existingAssistant) {
     if (typeof existingAssistant.isMounted === 'function' && existingAssistant.isMounted()) {
@@ -22,6 +131,9 @@
     }
   }
 
+  document.querySelector('[data-ai-puzzle-assistant-host="true"]')?.remove();
+  document.querySelector('[data-ai-puzzle-assistant-screenshot-frame="true"]')?.remove();
+
   // ВНИМАНИЕ:
   // API-ключ хранится в клиентском JavaScript.
   // Не публикуйте этот файл и не передавайте его другим людям.
@@ -29,11 +141,33 @@
     apiKey: '[SECRET_REMOVED]', // <-- Вставьте сюда API-ключ DeepSeek.
     apiUrl: 'https://api.deepseek.com/v1/chat/completions',
     model: 'deepseek-chat',
+    visionModel: 'deepseek-v4-flash-vision-exp',
     hotkey: {
       ctrl: false,
       shift: true,
       alt: false,
       key: 'Y',
+    },
+    screenshotHotkey: {
+      enabled: true,
+      ctrl: false,
+      shift: true,
+      alt: false,
+      key: 'A',
+    },
+    screenshotAreaHotkey: {
+      enabled: true,
+      ctrl: false,
+      shift: true,
+      alt: false,
+      key: 'R',
+    },
+    screenshotFrameHotkey: {
+      enabled: true,
+      ctrl: true,
+      shift: true,
+      alt: false,
+      key: 'R',
     },
     toggleHotkey: {
       enabled: true,
@@ -46,6 +180,7 @@
     maxTokens: 2000,
     temperature: 0.2,
     timeoutMs: 60000,
+    screenshotFrameOpacity: 0.3,
     ignoreHotkeyInEditable: true,
     debug: false,
   };
@@ -59,31 +194,35 @@
   const PAGE_HIGHLIGHT_STYLE_ID = 'ai-puzzle-assistant-page-highlight-style';
   const PAGE_HIGHLIGHT_CLASS = 'ai-puzzle-assistant-correct-option';
   const SELECTION_STYLE_ID = 'ai-puzzle-assistant-selection-style';
+  const SCREENSHOT_FRAME_STYLE_ID = 'ai-puzzle-assistant-screenshot-frame-style';
+  const SCREENSHOT_FRAME_ATTRIBUTE = 'data-ai-puzzle-assistant-screenshot-frame';
+  const MIN_SCREENSHOT_AREA_WIDTH = 160;
+  const MIN_SCREENSHOT_AREA_HEIGHT = 90;
 
   const SYSTEM_PROMPT = [
     'Ты - ИИ-помощник по решению заданий.',
     'Определи правильный ответ, но не показывай ход рассуждений.',
     '',
     'Строгий формат ответа:',
-    '1. Отвечай на языке задания.',
+    '1. Определи язык текста задания. Ответ пиши строго на языке задания.',
     '2. Сначала напиши только окончательный ответ.',
     '3. Если в задании есть варианты ответа, определи один или несколько правильных вариантов и верни точный текст каждого правильного варианта без перефразирования.',
     '4. Не повторяй окончательный ответ.',
-    '5. После ответа добавь краткое объяснение, почему он верный.',
+    '5. Не добавляй пояснение, объяснение, анализ или ход рассуждений.',
   ].join('\n');
 
   const VERIFY_PROMPT = [
     'Ты - внимательный проверяющий ИИ.',
     'Пользователь передает исходную задачу и предыдущий ответ ИИ.',
-    'Твоя задача - заново решить задачу независимо от предыдущего ответа, затем сравнить результат.',
+    'Твоя задача - заново решить задачу независимо от предыдущего ответа и вернуть только проверенный итог.',
     '',
-    'Правила:',
-    '1. Не доверяй предыдущему ответу автоматически.',
-    '2. Проверь все условия задачи.',
-    '3. Если предыдущий ответ верный, коротко подтверди это и объясни почему.',
-    '4. Если предыдущий ответ неверный или неполный, укажи ошибку и дай правильное решение.',
-    '5. Итоговый проверенный ответ помести в конце отдельной строкой.',
-    '6. Отвечай на том языке на котором была задача или вопрос.',
+    'Строгий формат ответа:',
+    '1. Определи язык текста задания. Весь ответ, включая краткое пояснение, пиши строго на языке задания.',
+    '2. Не показывай ход рассуждений, анализ, сравнение или пошаговое решение.',
+    '3. Сначала напиши только окончательный проверенный ответ.',
+    '4. Если в задании есть варианты ответа, верни точный текст каждого правильного варианта без перефразирования.',
+    '5. Не повторяй окончательный ответ.',
+    '6. После ответа добавь только краткое пояснение, почему он верный.',
   ].join('\n');
 
   const DEFAULT_SETTINGS = {
@@ -91,8 +230,10 @@
     top: 80,
     width: DEFAULT_WINDOW_WIDTH,
     height: null,
-    opacity: 0.4,
-    collapsed: false,
+    opacity: 0.3,
+    collapsed: true,
+    screenshotArea: getDefaultScreenshotArea(),
+    screenshotFrameVisible: true,
   };
 
   const state = {
@@ -100,6 +241,9 @@
     isHidden: false,
     lastSelectedText: '',
     lastSelectionRange: null,
+    lastRequestMode: 'text',
+    lastScreenshotArea: null,
+    lastScreenshotDataUrl: '',
     lastAnswer: '',
     highlightedOptions: [],
     abortController: null,
@@ -109,6 +253,10 @@
     elements: {},
     drag: null,
     resize: null,
+    screenshotAreaDrag: null,
+    screenshotAreaResize: null,
+    isEditingScreenshotArea: false,
+    screenshotAreaInteraction: null,
     previousBodyUserSelect: '',
   };
 
@@ -132,7 +280,9 @@
         width: clamp(getFiniteNumber(parsed.width, DEFAULT_SETTINGS.width), MIN_WINDOW_WIDTH, Math.max(MIN_WINDOW_WIDTH, window.innerWidth - 12)),
         height: getOptionalWindowHeight(parsed.height),
         opacity: clamp(getFiniteNumber(parsed.opacity, DEFAULT_SETTINGS.opacity), 0.01, 1),
-        collapsed: Boolean(parsed.collapsed),
+        collapsed: true,
+        screenshotArea: getScreenshotArea(parsed.screenshotArea),
+        screenshotFrameVisible: parsed.screenshotFrameVisible !== false,
       };
     } catch (error) {
       return { ...DEFAULT_SETTINGS };
@@ -150,6 +300,8 @@
           height: state.settings.height,
           opacity: state.settings.opacity,
           collapsed: state.settings.collapsed,
+          screenshotArea: state.settings.screenshotArea,
+          screenshotFrameVisible: state.settings.screenshotFrameVisible,
         }),
       );
     } catch (error) {
@@ -166,6 +318,41 @@
     const number = Number(value);
     if (!Number.isFinite(number)) return null;
     return clamp(number, MIN_WINDOW_HEIGHT, Math.max(MIN_WINDOW_HEIGHT, window.innerHeight - 12));
+  }
+
+  function getDefaultScreenshotArea() {
+    const width = clamp(Math.round(window.innerWidth * 0.72), MIN_SCREENSHOT_AREA_WIDTH, Math.max(MIN_SCREENSHOT_AREA_WIDTH, window.innerWidth - 48));
+    const height = clamp(Math.round(window.innerHeight * 0.42), MIN_SCREENSHOT_AREA_HEIGHT, Math.max(MIN_SCREENSHOT_AREA_HEIGHT, window.innerHeight - 96));
+
+    return {
+      left: Math.round((window.innerWidth - width) / 2),
+      top: Math.max(48, Math.round((window.innerHeight - height) / 3)),
+      width,
+      height,
+    };
+  }
+
+  function getScreenshotArea(value) {
+    const fallback = getDefaultScreenshotArea();
+    if (!value || typeof value !== 'object') return fallback;
+
+    const width = clamp(
+      getFiniteNumber(value.width, fallback.width),
+      MIN_SCREENSHOT_AREA_WIDTH,
+      Math.max(MIN_SCREENSHOT_AREA_WIDTH, window.innerWidth),
+    );
+    const height = clamp(
+      getFiniteNumber(value.height, fallback.height),
+      MIN_SCREENSHOT_AREA_HEIGHT,
+      Math.max(MIN_SCREENSHOT_AREA_HEIGHT, window.innerHeight),
+    );
+
+    return {
+      left: clamp(getFiniteNumber(value.left, fallback.left), 0, Math.max(0, window.innerWidth - width)),
+      top: clamp(getFiniteNumber(value.top, fallback.top), 0, Math.max(0, window.innerHeight - height)),
+      width: Math.round(width),
+      height: Math.round(height),
+    };
   }
 
   function clamp(value, min, max) {
@@ -311,7 +498,7 @@
         width: 26px;
         height: 26px;
         padding: 0;
-        color: #111827;
+        color: #cbd5e1;
         background: #ffffff;
         border: 1px solid #cbd5e1;
         border-radius: 6px;
@@ -477,14 +664,11 @@
 
     const title = document.createElement('div');
     title.className = 'title';
-    title.textContent = 'ИИ-помощник';
+    title.textContent = '';
 
     const opacityControl = document.createElement('label');
     opacityControl.className = 'opacity-control';
     opacityControl.setAttribute('data-no-drag', 'true');
-
-    const opacityLabel = document.createElement('span');
-    opacityLabel.textContent = 'Прозрачность';
 
     const opacityInput = document.createElement('input');
     opacityInput.type = 'range';
@@ -492,7 +676,7 @@
     opacityInput.max = '100';
     opacityInput.step = '1';
     opacityInput.value = String(Math.round(state.settings.opacity * 100));
-    opacityInput.title = 'Прозрачность окна';
+    opacityInput.title = 'Настройка окна';
 
     const collapseButton = document.createElement('button');
     collapseButton.type = 'button';
@@ -517,11 +701,6 @@
 
     const actions = document.createElement('div');
     actions.className = 'actions';
-
-    const solveButton = document.createElement('button');
-    solveButton.type = 'button';
-    solveButton.className = 'button primary';
-    solveButton.textContent = 'Решить';
 
     const verifyButton = document.createElement('button');
     verifyButton.type = 'button';
@@ -550,9 +729,9 @@
     resizeHandle.setAttribute('aria-label', 'Изменить размер окна');
     resizeHandle.title = 'Изменить размер окна';
 
-    opacityControl.append(opacityLabel, opacityInput);
+    opacityControl.append(opacityInput);
     header.append(title, opacityControl, collapseButton, closeButton);
-    actions.append(solveButton, verifyButton, clearButton, cancelButton);
+    actions.append(verifyButton, clearButton, cancelButton);
     content.append(status, actions, answer);
     panel.append(header, content, resizeHandle);
     shadowRoot.append(panel);
@@ -571,7 +750,6 @@
       opacityInput,
       panel,
       resizeHandle,
-      solveButton,
       status,
       verifyButton,
     };
@@ -589,8 +767,6 @@
       stopHeaderControlEvent(event);
       destroy();
     });
-    solveButton.addEventListener('mousedown', (event) => event.preventDefault());
-    solveButton.addEventListener('click', solveSelectedText);
     verifyButton.addEventListener('mousedown', (event) => event.preventDefault());
     verifyButton.addEventListener('click', verifyLastAnswer);
     clearButton.addEventListener('click', clearAnswer);
@@ -599,9 +775,10 @@
 
     makeWindowDraggable();
     makeWindowResizable();
+    createScreenshotFrame();
     applyCollapsedState();
     clampWindowToViewport();
-    setStatus('Готово. Выделите текст задачи.');
+    setStatus('Готово. Shift+Y - текст, Shift+A - скрин, Shift+R - настройка, Ctrl+Shift+R - рамка.');
   }
 
   function makeWindowDraggable() {
@@ -707,6 +884,261 @@
     applyWindowSizeToHost();
   }
 
+  function ensureScreenshotFrameStyle() {
+    if (document.getElementById(SCREENSHOT_FRAME_STYLE_ID)) return;
+
+    const style = document.createElement('style');
+    style.id = SCREENSHOT_FRAME_STYLE_ID;
+    style.textContent = `
+      [${SCREENSHOT_FRAME_ATTRIBUTE}="true"] {
+        position: fixed !important;
+        z-index: ${MAX_Z_INDEX - 2} !important;
+        display: block !important;
+        background: rgb(59 130 246 / 18%) !important;
+        border: 2px dashed #2563eb !important;
+        box-shadow: 0 0 0 99999px rgb(15 23 42 / 6%) !important;
+        opacity: ${CONFIG.screenshotFrameOpacity} !important;
+        pointer-events: none !important;
+        box-sizing: border-box !important;
+      }
+
+      [${SCREENSHOT_FRAME_ATTRIBUTE}="true"][hidden] {
+        display: none !important;
+      }
+
+      [${SCREENSHOT_FRAME_ATTRIBUTE}="true"].is-editing {
+        cursor: move !important;
+        opacity: 0.72 !important;
+        pointer-events: auto !important;
+      }
+
+      [${SCREENSHOT_FRAME_ATTRIBUTE}="true"] .ai-puzzle-assistant-screenshot-resize {
+        position: absolute !important;
+        right: -8px !important;
+        bottom: -8px !important;
+        display: none !important;
+        width: 18px !important;
+        height: 18px !important;
+        background: #2563eb !important;
+        border: 2px solid #ffffff !important;
+        border-radius: 4px !important;
+        box-shadow: 0 2px 8px rgb(15 23 42 / 25%) !important;
+        cursor: nwse-resize !important;
+        pointer-events: none !important;
+      }
+
+      [${SCREENSHOT_FRAME_ATTRIBUTE}="true"].is-editing .ai-puzzle-assistant-screenshot-resize {
+        display: block !important;
+        pointer-events: auto !important;
+      }
+    `;
+    (document.head || document.documentElement).append(style);
+  }
+
+  function createScreenshotFrame() {
+    ensureScreenshotFrameStyle();
+
+    const existingFrame = document.querySelector(`[${SCREENSHOT_FRAME_ATTRIBUTE}="true"]`);
+    if (existingFrame) existingFrame.remove();
+
+    const frame = document.createElement('div');
+    frame.setAttribute(SCREENSHOT_FRAME_ATTRIBUTE, 'true');
+    frame.setAttribute('aria-hidden', 'true');
+
+    const resizeHandle = document.createElement('div');
+    resizeHandle.className = 'ai-puzzle-assistant-screenshot-resize';
+    frame.append(resizeHandle);
+
+    frame.addEventListener('mousedown', handleScreenshotAreaDragStart);
+    resizeHandle.addEventListener('mousedown', handleScreenshotAreaResizeStart);
+    document.documentElement.append(frame);
+
+    state.elements.screenshotFrame = frame;
+    updateScreenshotFrame();
+  }
+
+  function updateScreenshotFrame() {
+    const frame = state.elements.screenshotFrame;
+    if (!frame) return;
+
+    state.settings.screenshotArea = getScreenshotArea(state.settings.screenshotArea);
+    const area = state.settings.screenshotArea;
+    frame.style.left = `${area.left}px`;
+    frame.style.top = `${area.top}px`;
+    frame.style.width = `${area.width}px`;
+    frame.style.height = `${area.height}px`;
+    frame.hidden = state.settings.screenshotFrameVisible === false;
+    frame.style.setProperty('display', state.settings.screenshotFrameVisible === false ? 'none' : 'block', 'important');
+    frame.classList.toggle('is-editing', state.settings.screenshotFrameVisible !== false && state.isEditingScreenshotArea);
+
+  }
+
+  function toggleScreenshotFrameVisibility() {
+    state.settings.screenshotFrameVisible = state.settings.screenshotFrameVisible === false;
+    if (!state.settings.screenshotFrameVisible) {
+      state.isEditingScreenshotArea = false;
+    }
+    updateScreenshotFrame();
+    saveSettings();
+    setStatus(state.settings.screenshotFrameVisible ? 'Рамка скрина показана.' : 'Рамка скрина скрыта. Shift+A всё равно сделает скрин сохраненной области.');
+  }
+
+  function toggleScreenshotAreaEditing() {
+    if (state.settings.screenshotFrameVisible === false) {
+      state.settings.screenshotFrameVisible = true;
+    }
+    setScreenshotAreaEditing(!state.isEditingScreenshotArea);
+  }
+
+  function setScreenshotAreaEditing(isEditing) {
+    state.isEditingScreenshotArea = isEditing;
+    updateScreenshotFrame();
+    saveSettings();
+    setStatus(isEditing ? 'Настройка области скрина: перетащите рамку или угол. Shift+R - сохранить.' : 'Область скрина сохранена. Shift+A отправит скрин.');
+  }
+
+  function createScreenshotAreaInteractionShield(cursor) {
+    removeScreenshotAreaInteractionShield();
+
+    const shield = document.createElement('div');
+    shield.setAttribute('data-ai-puzzle-assistant-interaction-shield', 'true');
+    shield.style.position = 'fixed';
+    shield.style.inset = '0';
+    shield.style.zIndex = String(MAX_Z_INDEX - 3);
+    shield.style.background = 'transparent';
+    shield.style.cursor = cursor;
+    shield.style.pointerEvents = 'auto';
+    shield.style.userSelect = 'none';
+    document.documentElement.append(shield);
+
+    state.screenshotAreaInteraction = {
+      shield,
+      cursor,
+    };
+
+    return shield;
+  }
+
+  function removeScreenshotAreaInteractionShield() {
+    state.screenshotAreaInteraction?.shield?.remove();
+    state.screenshotAreaInteraction = null;
+  }
+
+  function handleScreenshotAreaDragStart(event) {
+    if (!state.isEditingScreenshotArea || event.button !== 0) return;
+    if (event.target.closest('.ai-puzzle-assistant-screenshot-resize')) return;
+
+    const area = state.settings.screenshotArea;
+    state.screenshotAreaDrag = {
+      startX: event.clientX,
+      startY: event.clientY,
+      startLeft: area.left,
+      startTop: area.top,
+    };
+    state.previousBodyUserSelect = document.body.style.userSelect;
+    document.body.style.userSelect = 'none';
+    const shield = createScreenshotAreaInteractionShield('move');
+    shield.addEventListener('mousemove', handleScreenshotAreaDragMove, true);
+    shield.addEventListener('mouseup', handleScreenshotAreaDragEnd, true);
+    document.addEventListener('mousemove', handleScreenshotAreaDragMove, true);
+    document.addEventListener('mouseup', handleScreenshotAreaDragEnd, true);
+    window.addEventListener('mousemove', handleScreenshotAreaDragMove, true);
+    window.addEventListener('mouseup', handleScreenshotAreaDragEnd, true);
+    window.addEventListener('blur', handleScreenshotAreaDragEnd, true);
+    event.preventDefault();
+    event.stopPropagation();
+  }
+
+  function handleScreenshotAreaDragMove(event) {
+    if (!state.screenshotAreaDrag) return;
+    if (event.buttons !== undefined && event.buttons !== 1) {
+      handleScreenshotAreaDragEnd();
+      return;
+    }
+
+    const area = state.settings.screenshotArea;
+    const nextLeft = state.screenshotAreaDrag.startLeft + event.clientX - state.screenshotAreaDrag.startX;
+    const nextTop = state.screenshotAreaDrag.startTop + event.clientY - state.screenshotAreaDrag.startY;
+    state.settings.screenshotArea = getScreenshotArea({
+      ...area,
+      left: nextLeft,
+      top: nextTop,
+    });
+    updateScreenshotFrame();
+    event.preventDefault();
+    event.stopPropagation();
+  }
+
+  function handleScreenshotAreaDragEnd() {
+    if (!state.screenshotAreaDrag) return;
+    state.screenshotAreaDrag = null;
+    document.body.style.userSelect = state.previousBodyUserSelect;
+    removeScreenshotAreaInteractionShield();
+    document.removeEventListener('mousemove', handleScreenshotAreaDragMove, true);
+    document.removeEventListener('mouseup', handleScreenshotAreaDragEnd, true);
+    window.removeEventListener('mousemove', handleScreenshotAreaDragMove, true);
+    window.removeEventListener('mouseup', handleScreenshotAreaDragEnd, true);
+    window.removeEventListener('blur', handleScreenshotAreaDragEnd, true);
+    saveSettings();
+  }
+
+  function handleScreenshotAreaResizeStart(event) {
+    if (!state.isEditingScreenshotArea || event.button !== 0) return;
+
+    const area = state.settings.screenshotArea;
+    state.screenshotAreaResize = {
+      startX: event.clientX,
+      startY: event.clientY,
+      startWidth: area.width,
+      startHeight: area.height,
+    };
+    state.previousBodyUserSelect = document.body.style.userSelect;
+    document.body.style.userSelect = 'none';
+    const shield = createScreenshotAreaInteractionShield('nwse-resize');
+    shield.addEventListener('mousemove', handleScreenshotAreaResizeMove, true);
+    shield.addEventListener('mouseup', handleScreenshotAreaResizeEnd, true);
+    document.addEventListener('mousemove', handleScreenshotAreaResizeMove, true);
+    document.addEventListener('mouseup', handleScreenshotAreaResizeEnd, true);
+    window.addEventListener('mousemove', handleScreenshotAreaResizeMove, true);
+    window.addEventListener('mouseup', handleScreenshotAreaResizeEnd, true);
+    window.addEventListener('blur', handleScreenshotAreaResizeEnd, true);
+    event.preventDefault();
+    event.stopPropagation();
+  }
+
+  function handleScreenshotAreaResizeMove(event) {
+    if (!state.screenshotAreaResize) return;
+    if (event.buttons !== undefined && event.buttons !== 1) {
+      handleScreenshotAreaResizeEnd();
+      return;
+    }
+
+    const area = state.settings.screenshotArea;
+    const maxWidth = Math.max(MIN_SCREENSHOT_AREA_WIDTH, window.innerWidth - area.left);
+    const maxHeight = Math.max(MIN_SCREENSHOT_AREA_HEIGHT, window.innerHeight - area.top);
+    state.settings.screenshotArea = getScreenshotArea({
+      ...area,
+      width: clamp(state.screenshotAreaResize.startWidth + event.clientX - state.screenshotAreaResize.startX, MIN_SCREENSHOT_AREA_WIDTH, maxWidth),
+      height: clamp(state.screenshotAreaResize.startHeight + event.clientY - state.screenshotAreaResize.startY, MIN_SCREENSHOT_AREA_HEIGHT, maxHeight),
+    });
+    updateScreenshotFrame();
+    event.preventDefault();
+    event.stopPropagation();
+  }
+
+  function handleScreenshotAreaResizeEnd() {
+    if (!state.screenshotAreaResize) return;
+    state.screenshotAreaResize = null;
+    document.body.style.userSelect = state.previousBodyUserSelect;
+    removeScreenshotAreaInteractionShield();
+    document.removeEventListener('mousemove', handleScreenshotAreaResizeMove, true);
+    document.removeEventListener('mouseup', handleScreenshotAreaResizeEnd, true);
+    window.removeEventListener('mousemove', handleScreenshotAreaResizeMove, true);
+    window.removeEventListener('mouseup', handleScreenshotAreaResizeEnd, true);
+    window.removeEventListener('blur', handleScreenshotAreaResizeEnd, true);
+    saveSettings();
+  }
+
   function applyWindowSizeToHost(targetHost = state.host) {
     if (!targetHost) return;
 
@@ -736,6 +1168,7 @@
         clamp(rect.left, 0, Math.max(0, window.innerWidth - rect.width)),
         clamp(rect.top, 0, Math.max(0, window.innerHeight - rect.height)),
       );
+      updateScreenshotFrame();
       saveSettings();
     });
   }
@@ -796,6 +1229,10 @@
       return `Выделенный текст слишком длинный. Максимум: ${CONFIG.maxSelectedTextLength} символов.`;
     }
 
+    return validateApiKey();
+  }
+
+  function validateApiKey() {
     if (!CONFIG.apiKey || CONFIG.apiKey.trim() === '' || CONFIG.apiKey.trim() === 'sk-') {
       return 'Добавьте API-ключ DeepSeek в CONFIG.apiKey в начале Snippet.';
     }
@@ -805,6 +1242,18 @@
 
   function isHotkeyPressed(event) {
     return isShortcutPressed(event, CONFIG.hotkey);
+  }
+
+  function isScreenshotHotkeyPressed(event) {
+    return CONFIG.screenshotHotkey?.enabled && isShortcutPressed(event, CONFIG.screenshotHotkey);
+  }
+
+  function isScreenshotAreaHotkeyPressed(event) {
+    return CONFIG.screenshotAreaHotkey?.enabled && isShortcutPressed(event, CONFIG.screenshotAreaHotkey);
+  }
+
+  function isScreenshotFrameHotkeyPressed(event) {
+    return CONFIG.screenshotFrameHotkey?.enabled && isShortcutPressed(event, CONFIG.screenshotFrameHotkey);
   }
 
   function isToggleHotkeyPressed(event) {
@@ -826,8 +1275,15 @@
 
   function isEditableTarget(target) {
     if (!target || !(target instanceof Element)) return false;
-    const editable = target.closest('input, textarea, select, [contenteditable="true"], [contenteditable=""], [contenteditable="plaintext-only"]');
-    return Boolean(editable || target.isContentEditable);
+    const editable = target.closest('textarea, select, [contenteditable="true"], [contenteditable=""], [contenteditable="plaintext-only"]');
+    if (editable || target.isContentEditable) return true;
+
+    const input = target.closest('input');
+    if (!input) return false;
+
+    const nonTypingTypes = new Set(['button', 'checkbox', 'color', 'file', 'hidden', 'image', 'radio', 'range', 'reset', 'submit']);
+    const inputType = String(input.getAttribute('type') || 'text').toLowerCase();
+    return !nonTypingTypes.has(inputType);
   }
 
   function handleKeyDown(event) {
@@ -841,7 +1297,28 @@
     if (isToggleHotkeyPressed(event)) {
       event.preventDefault();
       event.stopPropagation();
-      toggleVisibility();
+      runAssistantAction('toggle');
+      return;
+    }
+
+    if (isScreenshotFrameHotkeyPressed(event)) {
+      event.preventDefault();
+      event.stopPropagation();
+      runAssistantAction('frame');
+      return;
+    }
+
+    if (isScreenshotAreaHotkeyPressed(event)) {
+      event.preventDefault();
+      event.stopPropagation();
+      runAssistantAction('area');
+      return;
+    }
+
+    if (isScreenshotHotkeyPressed(event)) {
+      event.preventDefault();
+      event.stopPropagation();
+      runAssistantAction('screenshot');
       return;
     }
 
@@ -849,37 +1326,41 @@
 
     event.preventDefault();
     event.stopPropagation();
+    runAssistantAction('default');
+  }
+
+  function solveDefaultHotkeyAction() {
     solveSelectedText();
   }
 
-  async function requestDeepSeek(text, previousAnswer = '') {
+  async function requestDeepSeek(text, previousAnswer = '', imageDataUrl = '') {
     state.abortController = new AbortController();
     const timeoutId = window.setTimeout(() => {
       if (state.abortController) state.abortController.abort();
     }, CONFIG.timeoutMs);
 
     try {
-      safeLog('Запрос отправлен');
-      const response = await fetch(CONFIG.apiUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${CONFIG.apiKey}`,
-        },
-        body: JSON.stringify({
-          model: CONFIG.model,
-          messages: createRequestMessages(text, previousAnswer),
-          max_tokens: CONFIG.maxTokens,
-          temperature: CONFIG.temperature,
-        }),
-        signal: state.abortController.signal,
-      });
+      const requestBody = {
+        model: imageDataUrl ? CONFIG.visionModel : CONFIG.model,
+        messages: imageDataUrl ? createImageRequestMessages(text, imageDataUrl, previousAnswer) : createRequestMessages(text, previousAnswer),
+        max_tokens: CONFIG.maxTokens,
+        temperature: CONFIG.temperature,
+      };
 
-      if (!response.ok) {
-        throw new Error(getHttpErrorMessage(response.status));
+      if (imageDataUrl) {
+        requestBody.thinking = {
+          type: 'disabled',
+        };
       }
 
-      const rawBody = await response.text();
+      safeLog(imageDataUrl ? 'Запрос со скрином отправлен' : 'Запрос с текстом отправлен');
+      const response = await sendDeepSeekRequest(requestBody);
+
+      if (!response.ok) {
+        throw new Error(getHttpErrorMessage(response.status, response.rawBody));
+      }
+
+      const rawBody = response.rawBody;
       if (!rawBody.trim()) {
         throw new Error('DeepSeek вернул пустой ответ.');
       }
@@ -914,6 +1395,46 @@
     }
   }
 
+  async function sendDeepSeekRequest(body) {
+    if (canUseExtensionMessaging()) {
+      const response = await sendExtensionMessage({
+        type: 'AI_PUZZLE_REQUEST_DEEPSEEK',
+        apiUrl: CONFIG.apiUrl,
+        apiKey: CONFIG.apiKey,
+        timeoutMs: CONFIG.timeoutMs,
+        body,
+      });
+
+      if (!response?.ok) {
+        const error = new Error(response?.error || 'Фоновый процесс расширения не смог выполнить запрос.');
+        error.name = response?.name || '';
+        throw error;
+      }
+
+      return {
+        ok: Boolean(response.httpOk),
+        status: response.status,
+        rawBody: response.rawBody || '',
+      };
+    }
+
+    const response = await fetch(CONFIG.apiUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${CONFIG.apiKey}`,
+      },
+      body: JSON.stringify(body),
+      signal: state.abortController.signal,
+    });
+
+    return {
+      ok: response.ok,
+      status: response.status,
+      rawBody: await response.text(),
+    };
+  }
+
   function createRequestMessages(text, previousAnswer) {
     if (!previousAnswer) {
       return [
@@ -942,13 +1463,142 @@
           'Предыдущий ответ ИИ:',
           previousAnswer,
           '',
-          'Перепроверь решение. Если предыдущий ответ верный, подтверди. Если неверный, дай правильный ответ.',
+          'Определи язык текста задания. Весь ответ, включая краткое пояснение, пиши строго на языке задания.',
+          'Верни только окончательный проверенный ответ и короткое пояснение. Не показывай анализ, сравнение или ход рассуждений.',
         ].join('\n'),
       },
     ];
   }
 
-  function getHttpErrorMessage(status) {
+  function createImageRequestMessages(text, imageDataUrl, previousAnswer = '') {
+    if (previousAnswer) {
+      return [
+        {
+          role: 'system',
+          content: VERIFY_PROMPT,
+        },
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'text',
+              text: [
+                text || 'Исходная задача находится на скриншоте.',
+                '',
+                'Предыдущий ответ ИИ:',
+                previousAnswer,
+                '',
+                'Определи язык текста задания. Весь ответ, включая краткое пояснение, пиши строго на языке задания.',
+                'Верни только окончательный проверенный ответ и короткое пояснение. Не показывай анализ, сравнение или ход рассуждений.',
+              ].join('\n'),
+            },
+            {
+              type: 'image_url',
+              image_url: {
+                url: imageDataUrl,
+                detail: 'high',
+              },
+            },
+          ],
+        },
+      ];
+    }
+
+    return [
+      {
+        role: 'system',
+        content: SYSTEM_PROMPT,
+      },
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'text',
+            text: text || 'Реши задачу на скриншоте. Определи язык текста задания. Ответ пиши строго на языке задания. Если есть варианты ответа, верни точный текст каждого правильного варианта. Не добавляй пояснение, объяснение, анализ или ход рассуждений.',
+          },
+          {
+            type: 'image_url',
+            image_url: {
+              url: imageDataUrl,
+              detail: 'high',
+            },
+          },
+        ],
+      },
+    ];
+  }
+
+  function canUseExtensionMessaging() {
+    return typeof chrome !== 'undefined' && Boolean(chrome.runtime?.sendMessage);
+  }
+
+  function sendExtensionMessage(message) {
+    return new Promise((resolve, reject) => {
+      if (!canUseExtensionMessaging()) {
+        reject(new Error('Этот режим работает только в расширении Chrome.'));
+        return;
+      }
+
+      const timeoutId = window.setTimeout(() => {
+        const error = new Error('Время ожидания ответа фонового процесса истекло.');
+        error.name = 'AbortError';
+        reject(error);
+      }, CONFIG.timeoutMs + 2000);
+
+      chrome.runtime.sendMessage(message, (response) => {
+        window.clearTimeout(timeoutId);
+        const runtimeError = chrome.runtime.lastError;
+        if (runtimeError) {
+          reject(new Error(runtimeError.message));
+          return;
+        }
+
+        resolve(response);
+      });
+    });
+  }
+
+  function handleRuntimeMessage(message, sender, sendResponse) {
+    if (message?.type !== 'AI_PUZZLE_RUN_ACTION') return false;
+
+    try {
+      runAssistantAction(message.action);
+      sendResponse({ ok: true });
+    } catch (error) {
+      sendResponse({ ok: false, error: error?.message || String(error) });
+    }
+
+    return false;
+  }
+
+  function runAssistantAction(action) {
+    if (action === 'toggle') {
+      toggleVisibility();
+      return;
+    }
+
+    if (action === 'area') {
+      toggleScreenshotAreaEditing();
+      return;
+    }
+
+    if (action === 'frame') {
+      toggleScreenshotFrameVisibility();
+      return;
+    }
+
+    if (action === 'screenshot') {
+      solveScreenshotArea();
+      return;
+    }
+
+    solveDefaultHotkeyAction();
+  }
+
+  function getHttpErrorMessage(status, rawBody = '') {
+    const apiError = getApiErrorMessage(rawBody);
+    if (apiError) return `HTTP ${status}: ${apiError}`;
+
     const messages = {
       400: 'HTTP 400: некорректный запрос к DeepSeek API.',
       401: 'HTTP 401: неверный или отсутствующий API-ключ DeepSeek.',
@@ -960,6 +1610,20 @@
     if (messages[status]) return messages[status];
     if (status >= 500) return `HTTP ${status}: ошибка сервера DeepSeek.`;
     return `HTTP ${status}: DeepSeek API вернул ошибку.`;
+  }
+
+  function getApiErrorMessage(rawBody) {
+    if (!rawBody || typeof rawBody !== 'string') return '';
+
+    try {
+      const data = JSON.parse(rawBody);
+      const message = data?.error?.message || data?.message;
+      if (typeof message === 'string' && message.trim()) return message.trim();
+    } catch (error) {
+      return rawBody.slice(0, 240).trim();
+    }
+
+    return '';
   }
 
   function isLikelyCorsOrNetworkError(error) {
@@ -976,10 +1640,9 @@
       .${PAGE_HIGHLIGHT_CLASS} {
         text-decoration-line: underline !important;
         text-decoration-thickness: 2px !important;
-        text-decoration-color: #9f9f9f !important;
+        text-decoration-color: #ebebeb !important;
         text-underline-offset: 4px !important;
-        background: rgb(159 187 249 / 12%) !important;
-        border-radius: 4px !important;
+        background: rgb(0 0 0 / 1%) !important;
       }
     `;
     (document.head || document.documentElement).append(style);
@@ -1030,6 +1693,10 @@
   }
 
   function getSelectableOptionCandidates() {
+    if (state.lastRequestMode === 'screenshot' && state.lastScreenshotArea) {
+      return getScreenshotAreaOptionCandidates(state.lastScreenshotArea);
+    }
+
     const range = state.lastSelectionRange;
     const root = getSelectionRoot(range);
     const selectedText = normalizeOptionText(state.lastSelectedText);
@@ -1059,6 +1726,52 @@
 
     if (candidates.length > 0) return candidates;
     return getTextOptionCandidates(root, range);
+  }
+
+  function getScreenshotAreaOptionCandidates(area) {
+    const inputs = Array.from(document.querySelectorAll('input[type="radio"], input[type="checkbox"]'));
+    const inputCandidates = [];
+
+    inputs.forEach((input) => {
+      const element = getOptionElement(input);
+      if (!element || !isVisibleElement(element)) return;
+      if (!elementIntersectsScreenshotArea(input, area) && !elementIntersectsScreenshotArea(element, area)) return;
+
+      const text = getOptionCandidateText(input, element);
+      if (!text) return;
+
+      inputCandidates.push({
+        element,
+        input,
+        key: getOptionKey(text),
+        text,
+      });
+    });
+
+    if (inputCandidates.length > 0) return inputCandidates;
+
+    const elements = Array.from(document.querySelectorAll('li, button, [role="button"], [role="radio"], [role="checkbox"], label, p, div, span'));
+    const seen = new Set();
+    const textCandidates = [];
+
+    elements.forEach((element) => {
+      if (!isVisibleElement(element)) return;
+      if (!elementIntersectsScreenshotArea(element, area)) return;
+
+      const text = element.textContent.replace(/\s+/g, ' ').trim();
+      const key = normalizeOptionText(stripOptionPrefix(text));
+      if (!text || text.length > 300 || seen.has(key)) return;
+
+      seen.add(key);
+      textCandidates.push({
+        element,
+        input: null,
+        key: getOptionKey(text),
+        text,
+      });
+    });
+
+    return keepDeepestOptionElements(textCandidates);
   }
 
   function getTextOptionCandidates(root, range) {
@@ -1170,6 +1883,18 @@
     } catch (error) {
       return false;
     }
+  }
+
+  function elementIntersectsScreenshotArea(element, area) {
+    if (!element || !area) return false;
+
+    const rect = element.getBoundingClientRect();
+    return (
+      rect.right >= area.left &&
+      rect.left <= area.left + area.width &&
+      rect.bottom >= area.top &&
+      rect.top <= area.top + area.height
+    );
   }
 
   function getOptionElement(input) {
@@ -1305,6 +2030,115 @@
     return element.getClientRects().length > 0;
   }
 
+  async function solveScreenshotArea() {
+    if (state.isLoading) {
+      setStatus('Предыдущий запрос ещё выполняется.', 'error');
+      return;
+    }
+
+    const validationError = validateApiKey();
+    if (validationError) {
+      showError(validationError);
+      return;
+    }
+
+    if (!canUseExtensionMessaging()) {
+      showError('Скрин работает только в установленном расширении Chrome.');
+      return;
+    }
+
+    const area = getScreenshotArea(state.settings.screenshotArea);
+    state.settings.screenshotArea = area;
+    state.lastSelectedText = '';
+    state.lastSelectionRange = null;
+    state.lastRequestMode = 'screenshot';
+    state.lastScreenshotArea = { ...area };
+    state.lastAnswer = '';
+    clearHighlightedOptions();
+    state.isLoading = true;
+    setLoadingState(true, 'screenshot');
+    setStatus('Скрин: снимаю сохраненную область...');
+    safeLog('Область скрина подготовлена', area);
+
+    try {
+      const imageDataUrl = await captureScreenshotArea(area);
+      state.lastScreenshotDataUrl = imageDataUrl;
+      setStatus('Скрин: отправляю картинку в DeepSeek...');
+      const answer = await requestDeepSeek('', '', imageDataUrl);
+      showAnswer(answer);
+      const highlightedCount = highlightCorrectOptions(answer);
+      setStatus(highlightedCount > 0 ? `Скрин: ответ получен. Подчеркнуто вариантов: ${highlightedCount}.` : 'Скрин: ответ получен. Варианты для подчеркивания не найдены.', 'success');
+    } catch (error) {
+      safeLog('Ошибка запроса со скрином');
+      showError(error?.message || 'Неизвестная ошибка.');
+    } finally {
+      state.isLoading = false;
+      setLoadingState(false);
+    }
+  }
+
+  async function captureScreenshotArea(area) {
+    const restoreOverlays = hideCaptureOverlays();
+
+    try {
+      await waitForPaint();
+      const response = await sendExtensionMessage({ type: 'AI_PUZZLE_CAPTURE_VISIBLE_TAB' });
+      if (!response?.ok || !response.dataUrl) {
+        throw new Error(response?.error || 'Не удалось сделать скриншот вкладки.');
+      }
+
+      return cropScreenshotDataUrl(response.dataUrl, area);
+    } finally {
+      restoreOverlays();
+    }
+  }
+
+  function hideCaptureOverlays() {
+    const elements = [state.elements.screenshotFrame].filter(Boolean);
+    const previousVisibility = elements.map((element) => element.style.visibility);
+
+    elements.forEach((element) => {
+      element.style.visibility = 'hidden';
+    });
+
+    return () => {
+      elements.forEach((element, index) => {
+        element.style.visibility = previousVisibility[index];
+      });
+    };
+  }
+
+  function waitForPaint() {
+    return new Promise((resolve) => {
+      requestAnimationFrame(() => requestAnimationFrame(resolve));
+    });
+  }
+
+  async function cropScreenshotDataUrl(dataUrl, area) {
+    const image = await loadImageDataUrl(dataUrl);
+    const scaleX = image.naturalWidth / window.innerWidth;
+    const scaleY = image.naturalHeight / window.innerHeight;
+    const sourceX = Math.round(area.left * scaleX);
+    const sourceY = Math.round(area.top * scaleY);
+    const sourceWidth = Math.round(area.width * scaleX);
+    const sourceHeight = Math.round(area.height * scaleY);
+    const canvas = document.createElement('canvas');
+
+    canvas.width = Math.max(1, sourceWidth);
+    canvas.height = Math.max(1, sourceHeight);
+    canvas.getContext('2d').drawImage(image, sourceX, sourceY, sourceWidth, sourceHeight, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL('image/png');
+  }
+
+  function loadImageDataUrl(dataUrl) {
+    return new Promise((resolve, reject) => {
+      const image = new Image();
+      image.onload = () => resolve(image);
+      image.onerror = () => reject(new Error('Не удалось обработать скриншот.'));
+      image.src = dataUrl;
+    });
+  }
+
   async function solveSelectedText() {
     if (state.isLoading) {
       setStatus('Предыдущий запрос ещё выполняется.', 'error');
@@ -1322,18 +2156,21 @@
 
     state.lastSelectedText = selectedText;
     state.lastSelectionRange = selectedRange;
+    state.lastRequestMode = 'text';
+    state.lastScreenshotArea = null;
+    state.lastScreenshotDataUrl = '';
     state.lastAnswer = '';
     clearHighlightedOptions();
     state.isLoading = true;
     setLoadingState(true, 'solve');
-    setStatus('Отправляю задачу в DeepSeek...');
+    setStatus('Текст: отправляю выделение в DeepSeek...');
     safeLog('Текст подготовлен');
 
     try {
       const answer = await requestDeepSeek(selectedText);
       showAnswer(answer);
       const highlightedCount = highlightCorrectOptions(answer);
-      setStatus(highlightedCount > 0 ? `Ответ получен. Подчеркнуто вариантов: ${highlightedCount}.` : 'Ответ получен. Варианты для подчеркивания не найдены.', 'success');
+      setStatus(highlightedCount > 0 ? `Текст: ответ получен. Подчеркнуто вариантов: ${highlightedCount}.` : 'Текст: ответ получен. Варианты для подчеркивания не найдены.', 'success');
     } catch (error) {
       safeLog('Ошибка запроса');
       showError(error?.message || 'Неизвестная ошибка.');
@@ -1349,31 +2186,46 @@
       return;
     }
 
-    const taskText = state.lastSelectedText || getCurrentSelection();
-    if (!taskText) {
-      showError('Не найден исходный текст задачи. Сначала выделите задачу и нажмите «Решить».');
-      return;
-    }
-
     if (!state.lastAnswer) {
       showError('Сначала получите ответ, который нужно проверить.');
       return;
     }
 
-    const validationError = validateSelectedText(taskText);
-    if (validationError) {
-      showError(validationError);
-      return;
+    const isScreenshotVerify = state.lastRequestMode === 'screenshot';
+    const taskText = isScreenshotVerify ? '' : state.lastSelectedText || getCurrentSelection();
+
+    if (isScreenshotVerify) {
+      const validationError = validateApiKey();
+      if (validationError) {
+        showError(validationError);
+        return;
+      }
+
+      if (!state.lastScreenshotDataUrl) {
+        showError('Не найден последний скрин для проверки. Сначала отправьте задачу через Shift+A.');
+        return;
+      }
+    } else {
+      if (!taskText) {
+        showError('Не найден исходный текст задачи. Сначала выделите задачу и нажмите Shift+Y.');
+        return;
+      }
+
+      const validationError = validateSelectedText(taskText);
+      if (validationError) {
+        showError(validationError);
+        return;
+      }
     }
 
     const answerToVerify = state.lastAnswer;
     clearHighlightedOptions();
     state.isLoading = true;
     setLoadingState(true, 'verify');
-    setStatus('Перепроверяю ответ в DeepSeek...');
+    setStatus(isScreenshotVerify ? 'Перепроверяю ответ по скрину в DeepSeek...' : 'Перепроверяю ответ в DeepSeek...');
 
     try {
-      const verifiedAnswer = await requestDeepSeek(taskText, answerToVerify);
+      const verifiedAnswer = await requestDeepSeek(taskText, answerToVerify, isScreenshotVerify ? state.lastScreenshotDataUrl : '');
       showAnswer(verifiedAnswer);
       const highlightedCount = highlightCorrectOptions(verifiedAnswer);
       setStatus(highlightedCount > 0 ? `Проверка завершена. Подчеркнуто вариантов: ${highlightedCount}.` : 'Проверка завершена. Варианты для подчеркивания не найдены.', 'success');
@@ -1387,9 +2239,7 @@
   }
 
   function setLoadingState(isLoading, mode = '') {
-    state.elements.solveButton.disabled = isLoading;
     state.elements.verifyButton.disabled = isLoading || !state.lastAnswer;
-    state.elements.solveButton.textContent = isLoading && mode === 'solve' ? 'Решаю...' : 'Решить';
     state.elements.verifyButton.textContent = isLoading && mode === 'verify' ? 'Проверяю...' : 'Проверить';
     state.elements.cancelButton.hidden = !isLoading;
   }
@@ -1419,10 +2269,12 @@
 
   function clearAnswer() {
     state.lastAnswer = '';
+    state.lastRequestMode = 'text';
+    state.lastScreenshotDataUrl = '';
     state.elements.answer.textContent = '';
     clearHighlightedOptions();
     setLoadingState(false);
-    setStatus('Готово. Выделите текст задачи.');
+    setStatus('Готово. Shift+Y - текст, Shift+A - скрин, Shift+R - настройка, Ctrl+Shift+R - рамка.');
   }
 
   function show() {
@@ -1432,10 +2284,10 @@
     state.host.style.display = 'block';
     document.documentElement.append(state.host);
     state.host.style.zIndex = String(MAX_Z_INDEX);
-    state.settings.collapsed = false;
+    state.settings.collapsed = true;
     applyCollapsedState();
     clampWindowToViewport();
-    setStatus(state.isLoading ? 'Отправляю задачу в DeepSeek...' : 'Готово. Выделите текст задачи.');
+    setStatus(state.isLoading ? 'Запрос выполняется...' : 'Готово. Shift+Y - текст, Shift+A - скрин, Shift+R - настройка, Ctrl+Shift+R - рамка.');
   }
 
   function hide() {
@@ -1462,6 +2314,9 @@
     clearHighlightedOptions();
     document.getElementById(PAGE_HIGHLIGHT_STYLE_ID)?.remove();
     document.getElementById(SELECTION_STYLE_ID)?.remove();
+    document.getElementById(SCREENSHOT_FRAME_STYLE_ID)?.remove();
+    if (canUseExtensionMessaging()) chrome.runtime.onMessage.removeListener(handleRuntimeMessage);
+    window.removeEventListener('keydown', handleKeyDown, true);
     document.removeEventListener('keydown', handleKeyDown, true);
     document.removeEventListener('selectionchange', rememberSelection, true);
     document.removeEventListener('mouseup', rememberSelection, true);
@@ -1471,12 +2326,28 @@
     document.removeEventListener('mouseup', handleDragEnd, true);
     document.removeEventListener('mousemove', handleResizeMove, true);
     document.removeEventListener('mouseup', handleResizeEnd, true);
+    document.removeEventListener('mousemove', handleScreenshotAreaDragMove, true);
+    document.removeEventListener('mouseup', handleScreenshotAreaDragEnd, true);
+    document.removeEventListener('mousemove', handleScreenshotAreaResizeMove, true);
+    document.removeEventListener('mouseup', handleScreenshotAreaResizeEnd, true);
+    window.removeEventListener('mousemove', handleScreenshotAreaDragMove, true);
+    window.removeEventListener('mouseup', handleScreenshotAreaDragEnd, true);
+    window.removeEventListener('blur', handleScreenshotAreaDragEnd, true);
+    window.removeEventListener('mousemove', handleScreenshotAreaResizeMove, true);
+    window.removeEventListener('mouseup', handleScreenshotAreaResizeEnd, true);
+    window.removeEventListener('blur', handleScreenshotAreaResizeEnd, true);
+    removeScreenshotAreaInteractionShield();
 
-    if (state.drag || state.resize) {
+    if (state.drag || state.resize || state.screenshotAreaDrag || state.screenshotAreaResize || state.screenshotAreaInteraction) {
       document.body.style.userSelect = state.previousBodyUserSelect;
       state.drag = null;
       state.resize = null;
+      state.screenshotAreaDrag = null;
+      state.screenshotAreaResize = null;
+      state.screenshotAreaInteraction = null;
     }
+
+    state.elements.screenshotFrame?.remove();
 
     if (state.host) {
       state.host.remove();
@@ -1496,6 +2367,8 @@
   function init() {
     ensureSelectionStyle();
     createInterface();
+    if (canUseExtensionMessaging()) chrome.runtime.onMessage.addListener(handleRuntimeMessage);
+    window.addEventListener('keydown', handleKeyDown, true);
     document.addEventListener('keydown', handleKeyDown, true);
     document.addEventListener('selectionchange', rememberSelection, true);
     document.addEventListener('mouseup', rememberSelection, true);
@@ -1506,6 +2379,7 @@
       show,
       hide,
       toggleVisibility,
+      runAction: runAssistantAction,
       destroy,
       isMounted,
     };
