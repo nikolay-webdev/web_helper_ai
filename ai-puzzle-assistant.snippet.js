@@ -219,11 +219,12 @@
     'Определи правильный ответ, но не показывай ход рассуждений.',
     '',
     'Строгий формат ответа:',
-    '1. Определи язык текста задания. Ответ пиши строго на языке задания.',
-    '2. Сначала напиши только окончательный ответ.',
-    '3. Если в задании есть варианты ответа, определи один или несколько правильных вариантов и верни точный текст каждого правильного варианта без перефразирования.',
-    '4. Не повторяй окончательный ответ.',
-    '5. Не добавляй пояснение, объяснение, анализ или ход рассуждений.',
+    '1. Определи язык текста задания молча; не выводи язык, название языка или служебные пометки.',
+    '2. Если в задании есть варианты ответа, ответ должен состоять только из точного текста правильного варианта или вариантов, которые видны в задании.',
+    '3. Не переводи, не исправляй и не перефразируй варианты ответа; скопируй их текст точно как в задании.',
+    '4. Если правильный вариант один, верни ровно одну строку с этим вариантом.',
+    '5. Если правильных вариантов несколько, верни каждый правильный вариант с новой строки.',
+    '6. Не добавляй пояснение, анализ, ход рассуждений, заголовки, метки, нумерацию, кавычки или любые строки, которых нет среди вариантов ответа.',
   ].join('\n');
 
   const VERIFY_PROMPT = [
@@ -232,12 +233,14 @@
     'Твоя задача - заново решить задачу независимо от предыдущего ответа и вернуть только проверенный итог.',
     '',
     'Строгий формат ответа:',
-    '1. Определи язык текста задания. Весь ответ, включая краткое пояснение, пиши строго на языке задания.',
-    '2. Не показывай ход рассуждений, анализ, сравнение или пошаговое решение.',
-    '3. Сначала напиши только окончательный проверенный ответ.',
-    '4. Если в задании есть варианты ответа, верни точный текст каждого правильного варианта без перефразирования.',
-    '5. Не повторяй окончательный ответ.',
-    '6. После ответа добавь только краткое пояснение, почему он верный.',
+    '1. Определи язык текста задания молча; не выводи язык, название языка или служебные пометки.',
+    '2. Весь ответ, включая краткое пояснение, пиши строго на языке задания.',
+    '3. Не показывай ход рассуждений, анализ, сравнение или пошаговое решение.',
+    '4. Сначала напиши только окончательный проверенный ответ.',
+    '5. Если в задании есть варианты ответа, верни точный текст каждого правильного варианта без перефразирования.',
+    '6. Если правильных вариантов несколько, верни каждый правильный вариант с новой строки.',
+    '7. Не повторяй окончательный ответ.',
+    '8. После ответа добавь только краткое пояснение, почему он верный.',
   ].join('\n');
 
   const DEFAULT_SETTINGS = {
@@ -1499,8 +1502,9 @@
           'Предыдущий ответ ИИ:',
           previousAnswer,
           '',
-          'Определи язык текста задания. Весь ответ, включая краткое пояснение, пиши строго на языке задания.',
-          'Верни только окончательный проверенный ответ и короткое пояснение. Не показывай анализ, сравнение или ход рассуждений.',
+          'Определи язык текста задания молча. Весь ответ, включая краткое пояснение, пиши строго на языке задания.',
+          'Сначала верни только окончательный проверенный ответ. Если правильных вариантов несколько, каждый вариант пиши с новой строки.',
+          'Потом добавь только короткое пояснение. Не показывай анализ, сравнение или ход рассуждений.',
         ].join('\n'),
       },
     ];
@@ -1524,8 +1528,9 @@
                 'Предыдущий ответ ИИ:',
                 previousAnswer,
                 '',
-                'Определи язык текста задания. Весь ответ, включая краткое пояснение, пиши строго на языке задания.',
-                'Верни только окончательный проверенный ответ и короткое пояснение. Не показывай анализ, сравнение или ход рассуждений.',
+                'Определи язык текста задания молча. Весь ответ, включая краткое пояснение, пиши строго на языке задания.',
+                'Сначала верни только окончательный проверенный ответ. Если правильных вариантов несколько, каждый вариант пиши с новой строки.',
+                'Потом добавь только короткое пояснение. Не показывай анализ, сравнение или ход рассуждений.',
               ].join('\n'),
             },
             {
@@ -1550,7 +1555,7 @@
         content: [
           {
             type: 'text',
-            text: text || 'Реши задачу на скриншоте. Определи язык текста задания. Ответ пиши строго на языке задания. Если есть варианты ответа, верни точный текст каждого правильного варианта. Не добавляй пояснение, объяснение, анализ или ход рассуждений.',
+            text: text || 'Реши задачу на скриншоте. Определи язык текста задания молча. Если есть варианты ответа, верни только точный текст каждого правильного варианта, который виден в задании. Если правильных вариантов несколько, каждый вариант пиши с новой строки. Не добавляй язык, пояснение, заголовки, метки, нумерацию, перевод, анализ или ход рассуждений.',
           },
           {
             type: 'image_url',
@@ -1719,15 +1724,17 @@
   function highlightCorrectOptions(answerText) {
     clearHighlightedOptions();
 
-    const answerBlock = getAnswerBlock(answerText);
-    if (!answerBlock) return 0;
+    const answer = getAnswerData(answerText);
+    if (!answer.block) return 0;
 
     const candidates = getSelectableOptionCandidates();
     const highlighted = [];
+    const exactMatches = candidates.filter((candidate) => matchesExactAnswer(candidate.text, answer.entries));
+    const candidatesToHighlight = exactMatches.length > 0
+      ? exactMatches
+      : candidates.filter((candidate) => matchesCorrectAnswer(candidate.text, candidate.key, answer));
 
-    candidates.forEach((candidate) => {
-      if (!matchesCorrectAnswer(candidate.text, candidate.key, answerBlock)) return;
-
+    candidatesToHighlight.forEach((candidate) => {
       candidate.element.classList.add(PAGE_HIGHLIGHT_CLASS);
       candidate.element.setAttribute('data-ai-puzzle-assistant-highlight', 'true');
       highlighted.push(candidate.element);
@@ -1996,7 +2003,15 @@
     return text.replace(/\s+/g, ' ').trim();
   }
 
-  function getAnswerBlock(answerText) {
+  function getAnswerData(answerText) {
+    const entries = getAnswerEntries(answerText);
+    return {
+      entries,
+      block: entries.join(' ').trim(),
+    };
+  }
+
+  function getAnswerEntries(answerText) {
     const lines = String(answerText || '')
       .split('\n')
       .map((line) => line.trim());
@@ -2008,12 +2023,32 @@
         continue;
       }
 
-      if (/^(объяснение|пояснение|почему|решение)\s*[:.-]/i.test(line)) break;
-      answerLines.push(stripAnswerPrefix(line));
+      if (isAnswerExplanationLine(line)) break;
+
+      const answerLine = stripAnswerPrefix(line);
+      if (!answerLine || isLikelyAnswerMetadataLine(answerLine)) continue;
+
+      answerLines.push(answerLine);
       if (answerLines.length >= 8) break;
     }
 
-    return answerLines.join(' ').trim();
+    return answerLines;
+  }
+
+  function isAnswerExplanationLine(text) {
+    return /^(объяснение|пояснение|почему|решение|explanation|reason|why|begründung|erkla?rung)\s*[:.-]/i.test(String(text || '').trim());
+  }
+
+  function isLikelyAnswerMetadataLine(text) {
+    const normalized = normalizeOptionText(text);
+    if (!normalized) return true;
+
+    const metadataPatterns = [
+      /^(язык|язык текста|language|text language|sprache|sprache des textes|sprache des texts|idioma|langue|lingua)\b/i,
+      /\b(deutsch|german|немецкий|english|английский|russian|русский)\s*$/i,
+    ];
+
+    return metadataPatterns.some((pattern) => pattern.test(String(text || '').trim())) && /[:：]/.test(String(text || ''));
   }
 
   function stripAnswerPrefix(text) {
@@ -2023,14 +2058,31 @@
       .trim();
   }
 
-  function matchesCorrectAnswer(optionText, optionKey, answerBlock) {
+  function matchesExactAnswer(optionText, answerEntries) {
+    const normalizedOption = normalizeOptionText(stripOptionPrefix(optionText));
+    if (!normalizedOption) return false;
+
+    return answerEntries.some((entry) => {
+      const normalizedEntry = normalizeOptionText(stripOptionPrefix(stripAnswerPrefix(entry)));
+      return normalizedEntry && normalizedEntry === normalizedOption;
+    });
+  }
+
+  function matchesCorrectAnswer(optionText, optionKey, answer) {
+    const answerBlock = typeof answer === 'string' ? answer : answer.block;
+    const answerEntries = typeof answer === 'string' ? [answer] : answer.entries;
     const normalizedAnswer = normalizeOptionText(answerBlock);
     const normalizedOption = normalizeOptionText(optionText);
     const normalizedOptionWithoutPrefix = normalizeOptionText(stripOptionPrefix(optionText));
 
     const textMatches = [normalizedOptionWithoutPrefix, normalizedOption].some((candidate) => {
       if (!candidate || candidate.length < 2) return false;
-      return normalizedAnswer.includes(candidate) || (candidate.length <= 80 && candidate.includes(normalizedAnswer));
+      if (normalizedAnswer.includes(candidate)) return true;
+
+      return answerEntries.some((entry) => {
+        const normalizedEntry = normalizeOptionText(entry);
+        return normalizedEntry && candidate.length <= 80 && candidate.includes(normalizedEntry);
+      });
     });
 
     if (textMatches) return true;
