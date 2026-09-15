@@ -529,17 +529,18 @@
       }
 
       .status.success {
-        color: #047857;
+        color: #a6afad;
       }
 
       .status.error {
-        color: #b91c1c;
+        color: #a6afad;
       }
 
       .actions {
         display: flex;
         flex-wrap: wrap;
         gap: 8px;
+        opacity:0.3;
       }
 
       .button {
