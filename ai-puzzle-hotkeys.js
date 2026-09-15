@@ -65,11 +65,25 @@
   }
 
   function getHotkeyAction(event) {
+    const opacityAction = getOpacityHotkeyAction(event);
+    if (opacityAction) return opacityAction;
     if (isShortcutPressed(event, HOTKEYS.toggle)) return 'toggle';
     if (isShortcutPressed(event, HOTKEYS.frame)) return 'frame';
     if (isShortcutPressed(event, HOTKEYS.area)) return 'area';
     if (isShortcutPressed(event, HOTKEYS.screenshot)) return 'screenshot';
     if (isShortcutPressed(event, HOTKEYS.default)) return 'default';
+    return '';
+  }
+
+  function getOpacityHotkeyAction(event) {
+    if (!event.shiftKey || event.ctrlKey || event.altKey) return '';
+
+    const key = String(event.key || '').toUpperCase();
+    const code = String(event.code || '').toUpperCase();
+
+    if (key === '+' || key === '=' || key === 'ADD' || code === 'EQUAL' || code === 'NUMPADADD') return 'opacityUp';
+    if (key === '-' || key === '_' || key === 'SUBTRACT' || code === 'MINUS' || code === 'NUMPADSUBTRACT') return 'opacityDown';
+
     return '';
   }
 

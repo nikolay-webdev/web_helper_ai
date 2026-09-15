@@ -67,11 +67,25 @@
   }
 
   function getFrameHotkeyAction(event) {
+    const opacityAction = getOpacityHotkeyAction(event);
+    if (opacityAction) return opacityAction;
     if (isFrameShortcutPressed(event, FRAME_HOTKEYS.toggle)) return 'toggle';
     if (isFrameShortcutPressed(event, FRAME_HOTKEYS.frame)) return 'frame';
     if (isFrameShortcutPressed(event, FRAME_HOTKEYS.area)) return 'area';
     if (isFrameShortcutPressed(event, FRAME_HOTKEYS.screenshot)) return 'screenshot';
     if (isFrameShortcutPressed(event, FRAME_HOTKEYS.default)) return 'default';
+    return '';
+  }
+
+  function getOpacityHotkeyAction(event) {
+    if (!event.shiftKey || event.ctrlKey || event.altKey) return '';
+
+    const key = String(event.key || '').toUpperCase();
+    const code = String(event.code || '').toUpperCase();
+
+    if (key === '+' || key === '=' || key === 'ADD' || code === 'EQUAL' || code === 'NUMPADADD') return 'opacityUp';
+    if (key === '-' || key === '_' || key === 'SUBTRACT' || code === 'MINUS' || code === 'NUMPADSUBTRACT') return 'opacityDown';
+
     return '';
   }
 
@@ -191,6 +205,7 @@
   const DEFAULT_WINDOW_WIDTH = 420;
   const MIN_WINDOW_WIDTH = 320;
   const MIN_WINDOW_HEIGHT = 250;
+  const OPACITY_HOTKEY_STEP = 0.05;
   const PAGE_HIGHLIGHT_STYLE_ID = 'ai-puzzle-assistant-page-highlight-style';
   const PAGE_HIGHLIGHT_CLASS = 'ai-puzzle-assistant-correct-option';
   const SELECTION_STYLE_ID = 'ai-puzzle-assistant-selection-style';
@@ -1175,9 +1190,20 @@
   }
 
   function updateOpacity() {
-    const opacity = Number(state.elements.opacityInput.value) / 100;
-    state.settings.opacity = clamp(opacity, 0.01, 1);
-    state.host.style.opacity = String(state.settings.opacity);
+    setOpacity(Number(state.elements.opacityInput.value) / 100);
+  }
+
+  function adjustOpacity(delta) {
+    setOpacity(state.settings.opacity + delta);
+  }
+
+  function setOpacity(opacity) {
+    const nextOpacity = clamp(opacity, 0.01, 1);
+    state.settings.opacity = nextOpacity;
+    if (state.host) state.host.style.opacity = String(nextOpacity);
+    if (state.elements.opacityInput) {
+      state.elements.opacityInput.value = String(Math.round(nextOpacity * 100));
+    }
     saveSettings();
   }
 
@@ -1292,6 +1318,14 @@
 
     const shadowActiveElement = state.shadowRoot?.activeElement || null;
     if (CONFIG.ignoreHotkeyInEditable && (isEditableTarget(event.target) || isEditableTarget(shadowActiveElement))) {
+      return;
+    }
+
+    const opacityAction = getOpacityHotkeyAction(event);
+    if (opacityAction) {
+      event.preventDefault();
+      event.stopPropagation();
+      runAssistantAction(opacityAction);
       return;
     }
 
@@ -1573,6 +1607,16 @@
   }
 
   function runAssistantAction(action) {
+    if (action === 'opacityUp') {
+      adjustOpacity(OPACITY_HOTKEY_STEP);
+      return;
+    }
+
+    if (action === 'opacityDown') {
+      adjustOpacity(-OPACITY_HOTKEY_STEP);
+      return;
+    }
+
     if (action === 'toggle') {
       toggleVisibility();
       return;
