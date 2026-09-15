@@ -445,7 +445,7 @@
       }
 
       .opacity-control {
-        display: flex;
+        display: none;
         align-items: center;
         gap: 6px;
         flex: 0 1 190px;
