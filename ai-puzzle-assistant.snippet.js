@@ -520,6 +520,7 @@
         font: inherit;
         line-height: 1;
         cursor: pointer;
+        outline:none;
       }
 
       .icon-button:hover {
