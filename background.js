@@ -48,21 +48,6 @@ async function getStoredApiKey() {
   return typeof stored?.[API_KEY_STORAGE_KEY] === 'string' ? stored[API_KEY_STORAGE_KEY].trim() : '';
 }
 
-async function saveApiKey(apiKey) {
-  const normalizedKey = typeof apiKey === 'string' ? apiKey.trim() : '';
-  if (!normalizedKey) {
-    throw new Error('Bitte geben Sie einen KI-API-Schlüssel ein.');
-  }
-
-  await chrome.storage.local.set({
-    [API_KEY_STORAGE_KEY]: normalizedKey,
-  });
-}
-
-async function deleteApiKey() {
-  await chrome.storage.local.remove(API_KEY_STORAGE_KEY);
-}
-
 async function requestApi(message) {
   const apiKey = await getStoredApiKey();
   if (!apiKey) {
@@ -147,20 +132,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     getStoredApiKey()
       .then((apiKey) => sendResponse({ ok: true, configured: Boolean(apiKey) }))
       .catch((error) => sendResponse({ ok: false, error: 'Der Status des KI-API-Schlüssels konnte nicht gelesen werden.' }));
-    return true;
-  }
-
-  if (message?.type === 'AI_PUZZLE_SAVE_API_KEY') {
-    saveApiKey(message.apiKey)
-      .then(() => sendResponse({ ok: true, configured: true }))
-      .catch((error) => sendResponse({ ok: false, error: error?.message || 'Der KI-API-Schlüssel konnte nicht gespeichert werden.' }));
-    return true;
-  }
-
-  if (message?.type === 'AI_PUZZLE_DELETE_API_KEY') {
-    deleteApiKey()
-      .then(() => sendResponse({ ok: true, configured: false }))
-      .catch((error) => sendResponse({ ok: false, error: 'Der KI-API-Schlüssel konnte nicht gelöscht werden.' }));
     return true;
   }
 

@@ -9,7 +9,7 @@
 
 ## KI-API-Schlüssel einrichten
 
-Klappen Sie das Fenster aus, geben Sie den eigenen Schlüssel im Bereich „KI-API-Schlüssel“ ein und klicken Sie auf „Speichern“. Der Wert wird lokal in `chrome.storage.local` gespeichert und nicht angezeigt. Mit „Löschen“ kann er entfernt werden.
+Öffnen Sie `chrome://extensions` → Web Helper AI → „Details“ → „Erweiterungsoptionen“. Geben Sie dort den eigenen Schlüssel im Bereich „KI-API-Schlüssel“ ein und klicken Sie auf „Speichern“. Der Wert wird lokal in `chrome.storage.local` gespeichert und nicht angezeigt. Mit „Löschen“ kann er entfernt werden.
 
 ## Aufgaben lösen
 

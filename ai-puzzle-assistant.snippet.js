@@ -554,54 +554,6 @@
         color: #a6afad;
       }
 
-      .settings {
-        display: grid;
-        gap: 6px;
-        padding: 10px;
-        background: #f8fafc;
-        border: 1px solid #d8dee8;
-        border-radius: 7px;
-      }
-
-      .settings-title {
-        color: #111827;
-        font-size: 12px;
-        font-weight: 650;
-      }
-
-      .settings-hint,
-      .key-status {
-        color: #64748b;
-        font-size: 12px;
-      }
-
-      .key-status.is-configured {
-        color: #166534;
-      }
-
-      .settings-row {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 6px;
-      }
-
-      .key-input {
-        min-width: 0;
-        flex: 1 1 220px;
-        min-height: 32px;
-        padding: 6px 8px;
-        color: #111827;
-        background: #ffffff;
-        border: 1px solid #cbd5e1;
-        border-radius: 7px;
-        font: inherit;
-      }
-
-      .key-input:focus-visible {
-        outline: 2px solid #93c5fd;
-        outline-offset: 1px;
-      }
-
       .actions {
         display: flex;
         flex-wrap: wrap;
@@ -796,51 +748,10 @@
     resizeHandle.setAttribute('aria-label', 'Fenstergröße ändern');
     resizeHandle.title = 'Fenstergröße ändern';
 
-    const settings = document.createElement('section');
-    settings.className = 'settings';
-    settings.setAttribute('aria-label', 'KI-API-Schlüssel');
-
-    const settingsTitle = document.createElement('div');
-    settingsTitle.className = 'settings-title';
-    settingsTitle.textContent = 'KI-API-Schlüssel';
-
-    const settingsHint = document.createElement('div');
-    settingsHint.className = 'settings-hint';
-    settingsHint.textContent = 'Der Schlüssel wird lokal in der Erweiterung gespeichert und nicht angezeigt.';
-
-    const keyStatus = document.createElement('div');
-    keyStatus.className = 'key-status';
-    keyStatus.textContent = 'Status: wird geprüft ...';
-
-    const settingsRow = document.createElement('div');
-    settingsRow.className = 'settings-row';
-
-    const keyInput = document.createElement('input');
-    keyInput.className = 'key-input';
-    keyInput.type = 'password';
-    keyInput.autocomplete = 'new-password';
-    keyInput.spellcheck = false;
-    keyInput.placeholder = 'Schlüssel eingeben';
-    keyInput.setAttribute('aria-label', 'KI-API-Schlüssel');
-
-    const saveKeyButton = document.createElement('button');
-    saveKeyButton.type = 'button';
-    saveKeyButton.className = 'button primary';
-    saveKeyButton.textContent = 'Speichern';
-
-    const deleteKeyButton = document.createElement('button');
-    deleteKeyButton.type = 'button';
-    deleteKeyButton.className = 'button danger';
-    deleteKeyButton.textContent = 'Löschen';
-    deleteKeyButton.disabled = true;
-
-    settingsRow.append(keyInput, saveKeyButton, deleteKeyButton);
-    settings.append(settingsTitle, settingsHint, keyStatus, settingsRow);
-
     opacityControl.append(opacityInput);
     header.append(title, opacityControl, collapseButton, closeButton);
     actions.append(verifyButton, clearButton, cancelButton);
-    content.append(settings, status, actions, answer);
+    content.append(status, actions, answer);
     panel.append(header, content, resizeHandle);
     shadowRoot.append(panel);
     document.documentElement.append(host);
@@ -860,10 +771,6 @@
       resizeHandle,
       status,
       verifyButton,
-      deleteKeyButton,
-      keyInput,
-      keyStatus,
-      saveKeyButton,
     };
 
     [collapseButton, closeButton, opacityInput].forEach((element) => {
@@ -884,8 +791,6 @@
     clearButton.addEventListener('click', clearAnswer);
     cancelButton.addEventListener('click', cancelRequest);
     opacityInput.addEventListener('input', updateOpacity);
-    saveKeyButton.addEventListener('click', saveConfiguredApiKey);
-    deleteKeyButton.addEventListener('click', deleteConfiguredApiKey);
 
     makeWindowDraggable();
     makeWindowResizable();
@@ -1364,22 +1269,13 @@
     }
 
     const configured = state.apiKeyStatusLoaded ? state.apiKeyConfigured : await refreshApiKeyStatus();
-    return configured ? '' : 'Richten Sie zuerst einen KI-API-Schlüssel im Assistenten ein.';
-  }
-
-  function updateApiKeyStatus() {
-    const configured = state.apiKeyConfigured;
-    state.elements.keyStatus.textContent = configured ? 'Status: eingerichtet' : 'Status: nicht eingerichtet';
-    state.elements.keyStatus.classList.toggle('is-configured', configured);
-    state.elements.deleteKeyButton.disabled = !configured;
+    return configured ? '' : 'Richten Sie zuerst einen KI-API-Schlüssel in den Erweiterungseinstellungen ein.';
   }
 
   async function refreshApiKeyStatus() {
     if (!canUseExtensionMessaging()) {
       state.apiKeyStatusLoaded = true;
       state.apiKeyConfigured = false;
-      state.elements.keyStatus.textContent = 'Status: nur im installierten Add-on verfügbar';
-      state.elements.deleteKeyButton.disabled = true;
       return false;
     }
 
@@ -1388,49 +1284,10 @@
       if (!response?.ok) throw new Error(response?.error || 'Status konnte nicht gelesen werden.');
       state.apiKeyConfigured = Boolean(response.configured);
       state.apiKeyStatusLoaded = true;
-      updateApiKeyStatus();
       return state.apiKeyConfigured;
     } catch (error) {
       state.apiKeyStatusLoaded = false;
-      state.elements.keyStatus.textContent = 'Status: nicht verfügbar';
-      state.elements.deleteKeyButton.disabled = true;
       return false;
-    }
-  }
-
-  async function saveConfiguredApiKey() {
-    const apiKey = state.elements.keyInput.value.trim();
-    if (!apiKey) {
-      setStatus('Geben Sie zuerst einen KI-API-Schlüssel ein.', 'error');
-      return;
-    }
-
-    state.elements.saveKeyButton.disabled = true;
-    try {
-      const response = await sendExtensionMessage({ type: 'AI_PUZZLE_SAVE_API_KEY', apiKey });
-      if (!response?.ok) throw new Error(response?.error || 'Der Schlüssel konnte nicht gespeichert werden.');
-      state.elements.keyInput.value = '';
-      state.apiKeyConfigured = true;
-      state.apiKeyStatusLoaded = true;
-      updateApiKeyStatus();
-      setStatus('Der KI-API-Schlüssel wurde lokal gespeichert.', 'success');
-    } catch (error) {
-      showError(error?.message || 'Der KI-API-Schlüssel konnte nicht gespeichert werden.');
-    } finally {
-      state.elements.saveKeyButton.disabled = false;
-    }
-  }
-
-  async function deleteConfiguredApiKey() {
-    try {
-      const response = await sendExtensionMessage({ type: 'AI_PUZZLE_DELETE_API_KEY' });
-      if (!response?.ok) throw new Error(response?.error || 'Der Schlüssel konnte nicht gelöscht werden.');
-      state.apiKeyConfigured = false;
-      state.apiKeyStatusLoaded = true;
-      updateApiKeyStatus();
-      setStatus('Der gespeicherte KI-API-Schlüssel wurde gelöscht.', 'success');
-    } catch (error) {
-      showError(error?.message || 'Der KI-API-Schlüssel konnte nicht gelöscht werden.');
     }
   }
 

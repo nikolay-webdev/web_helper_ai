@@ -38,6 +38,7 @@ Das Projekt verbindet DOM- und Event-Programmierung, asynchrone JavaScript-Logik
 | `background.js` | Service Worker, lokaler Schlüsselzugriff, API-Anfragen, Screenshots und Nachrichtenweiterleitung |
 | `ai-puzzle-assistant.snippet.js` | Benutzeroberfläche, Seitenauswahl, Markierungen und Ereignislogik |
 | `ai-puzzle-hotkeys.js` | Früher Tastatur-Listener für Seiten und Frames |
+| `options.html` / `options.js` | Separate Erweiterungseinstellungen für den lokalen KI-API-Schlüssel |
 | `ANLEITUNG.md` | Kurzanleitung für Installation und Verwendung |
 | `.gitignore` | Ausschlüsse für lokale Schlüssel und internes Material |
 
@@ -51,10 +52,10 @@ Das Projekt verbindet DOM- und Event-Programmierung, asynchrone JavaScript-Logik
 
 ## Einrichtung
 
-1. Öffnen Sie das Fenster des Assistenten und klappen Sie es bei Bedarf aus.
-2. Geben Sie im Bereich „KI-API-Schlüssel“ Ihren eigenen Schlüssel ein.
-3. Klicken Sie auf „Speichern“.
-4. Der Schlüssel wird ausschließlich lokal in `chrome.storage.local` gespeichert. Der Wert wird danach nicht wieder in der Oberfläche angezeigt.
+1. Öffnen Sie `chrome://extensions`.
+2. Klicken Sie bei Web Helper AI auf „Details“ und anschließend auf „Erweiterungsoptionen“.
+3. Geben Sie im Bereich „KI-API-Schlüssel“ Ihren eigenen Schlüssel ein und klicken Sie auf „Speichern“.
+4. Der Schlüssel wird ausschließlich lokal in `chrome.storage.local` gespeichert. Der Wert wird danach nicht wieder angezeigt.
 5. Mit „Löschen“ kann der lokale Schlüssel entfernt werden.
 
 Der konkrete API-Endpunkt und die verwendeten Modellnamen sind derzeit in der Erweiterung konfiguriert. Das Projekt stellt keine allgemeine Unterstützung für beliebige Anbieter dar.
@@ -103,7 +104,7 @@ Lokale Dateien wie `.env` und das interne technische Briefing werden durch `.git
 
 ## Weiterentwicklung
 
-- eine kleine Optionsseite statt der eingebetteten Schlüsseleinstellungen;
+- eine Weiterentwicklung der separaten Optionsseite;
 - automatisierte Tests für Nachrichtenfluss, Antwortparser und Einstellungen;
 - konfigurierbare API-Endpunkte und Modelle über eine klar validierte Optionsseite;
 - bessere Barrierefreiheit und Internationalisierung;
