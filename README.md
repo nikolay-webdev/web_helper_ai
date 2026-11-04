@@ -89,9 +89,9 @@ Der Service Worker ist für den Netzwerkzugriff zuständig. Er liest den Schlüs
 
 Der Schlüssel wird bewusst lokal auf dem Gerät gespeichert. Das ist für dieses persönliche Lernprojekt eine einfache Architektur, aber kein vollständig geschützter Geheimnisspeicher: Eine lokale Browser-Erweiterung kann nicht dieselbe Geheimhaltung wie ein serverseitiger Secret-Store garantieren.
 
-Übertragen Sie keine Passwörter, Zahlungsdaten oder andere vertrauliche Inhalte. Prüfen Sie vor einer Veröffentlichung alle Dateien und die Git-Historie. Da ein früherer Entwicklungsstand bereits einen Schlüssel enthielt, muss der Eigentümer vor einer öffentlichen Veröffentlichung den Schlüssel im Anbieter-Konto ersetzen und die Historie mit einer geprüften Sicherung bereinigen. Ein Force Push oder eine Änderung der Repository-Sichtbarkeit ist nicht Bestandteil dieses Projektschritts.
+Übertragen Sie keine Passwörter, Zahlungsdaten oder andere vertrauliche Inhalte. Prüfen Sie vor einer Veröffentlichung alle Dateien und die Git-Historie. Da ein früherer Entwicklungsstand bereits einen Schlüssel enthielt, wurde die lokale Historie nach einer geprüften Sicherung bereinigt. Der Remote wurde nicht verändert; vor einer Veröffentlichung muss der Eigentümer die bereinigte Historie nochmals prüfen und bewusst über einen Force Push entscheiden. Die Repository-Sichtbarkeit wurde nicht geändert.
 
-Lokale Dateien wie `.env` und das interne technische Briefing werden durch `.gitignore` ausgeschlossen. Die Repository-Historie muss separat und bewusst bereinigt werden.
+Lokale Dateien wie `.env` und das interne technische Briefing werden durch `.gitignore` ausgeschlossen. Die lokale Historie dieser Arbeitskopie enthält keine erkannten Schlüssel; der entfernte Repository-Verlauf muss vor einer Veröffentlichung separat geprüft werden.
 
 ## Bekannte Einschränkungen
 
@@ -107,7 +107,7 @@ Lokale Dateien wie `.env` und das interne technische Briefing werden durch `.git
 - automatisierte Tests für Nachrichtenfluss, Antwortparser und Einstellungen;
 - konfigurierbare API-Endpunkte und Modelle über eine klar validierte Optionsseite;
 - bessere Barrierefreiheit und Internationalisierung;
-- eine dokumentierte Bereinigung der alten Git-Historie vor der Veröffentlichung.
+- eine abschließende Prüfung der bereinigten Historie und eine abgestimmte Veröffentlichung.
 
 ## Teststatus
 
