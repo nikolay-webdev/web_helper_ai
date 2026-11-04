@@ -1,0 +1,16 @@
+.env
+.env.*
+!.env.example
+*.local
+*.secret
+*.key
+*.pem
+node_modules/
+dist/
+build/
+coverage/
+.vscode/
+.idea/
+
+# Internal project material
+Техническое задание.pdf

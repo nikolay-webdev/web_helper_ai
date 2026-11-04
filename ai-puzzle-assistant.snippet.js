@@ -148,12 +148,7 @@
   document.querySelector('[data-ai-puzzle-assistant-host="true"]')?.remove();
   document.querySelector('[data-ai-puzzle-assistant-screenshot-frame="true"]')?.remove();
 
-  // ВНИМАНИЕ:
-  // API-ключ хранится в клиентском JavaScript.
-  // Не публикуйте этот файл и не передавайте его другим людям.
   const CONFIG = {
-    apiKey: '[SECRET_REMOVED]', // <-- Вставьте сюда API-ключ DeepSeek.
-    apiUrl: 'https://api.deepseek.com/v1/chat/completions',
     model: 'deepseek-chat',
     visionModel: 'deepseek-v4-flash-vision-exp',
     hotkey: {
@@ -215,32 +210,32 @@
   const MIN_SCREENSHOT_AREA_HEIGHT = 90;
 
   const SYSTEM_PROMPT = [
-    'Ты - ИИ-помощник по решению заданий.',
-    'Определи правильный ответ, но не показывай ход рассуждений.',
+    'Du bist ein KI-Assistent zum Lösen von Aufgaben.',
+    'Bestimme die richtige Antwort, aber zeige keine Gedankengänge.',
     '',
-    'Строгий формат ответа:',
-    '1. Определи язык текста задания молча; не выводи язык, название языка или служебные пометки.',
-    '2. Если в задании есть варианты ответа, ответ должен состоять только из точного текста правильного варианта или вариантов, которые видны в задании.',
-    '3. Не переводи, не исправляй и не перефразируй варианты ответа; скопируй их текст точно как в задании.',
-    '4. Если правильный вариант один, верни ровно одну строку с этим вариантом.',
-    '5. Если правильных вариантов несколько, верни каждый правильный вариант с новой строки.',
-    '6. Не добавляй пояснение, анализ, ход рассуждений, заголовки, метки, нумерацию, кавычки или любые строки, которых нет среди вариантов ответа.',
+    'Strenges Antwortformat:',
+    '1. Erkenne die Sprache der Aufgabe still; gib weder die Sprache noch interne Hinweise aus.',
+    '2. Wenn die Aufgabe Antwortoptionen enthält, darf die Antwort nur aus dem exakten Text der sichtbaren richtigen Option oder Optionen bestehen.',
+    '3. Übersetze, korrigiere oder paraphrasiere die Optionen nicht; kopiere ihren Text genau wie in der Aufgabe.',
+    '4. Wenn genau eine Option richtig ist, gib genau eine Zeile mit dieser Option aus.',
+    '5. Wenn mehrere Optionen richtig sind, gib jede richtige Option in einer neuen Zeile aus.',
+    '6. Füge keine Erklärung, Analyse, Gedankengänge, Überschriften, Markierungen, Nummerierungen, Anführungszeichen oder andere nicht sichtbare Zeilen hinzu.',
   ].join('\n');
 
   const VERIFY_PROMPT = [
-    'Ты - внимательный проверяющий ИИ.',
-    'Пользователь передает исходную задачу и предыдущий ответ ИИ.',
-    'Твоя задача - заново решить задачу независимо от предыдущего ответа и вернуть только проверенный итог.',
+    'Du bist ein sorgfältiger KI-Prüfer.',
+    'Der Nutzer übermittelt die ursprüngliche Aufgabe und die vorherige KI-Antwort.',
+    'Löse die Aufgabe unabhängig von der vorherigen Antwort erneut und gib nur das geprüfte Ergebnis zurück.',
     '',
-    'Строгий формат ответа:',
-    '1. Определи язык текста задания молча; не выводи язык, название языка или служебные пометки.',
-    '2. Весь ответ, включая краткое пояснение, пиши строго на языке задания.',
-    '3. Не показывай ход рассуждений, анализ, сравнение или пошаговое решение.',
-    '4. Сначала напиши только окончательный проверенный ответ.',
-    '5. Если в задании есть варианты ответа, верни точный текст каждого правильного варианта без перефразирования.',
-    '6. Если правильных вариантов несколько, верни каждый правильный вариант с новой строки.',
-    '7. Не повторяй окончательный ответ.',
-    '8. После ответа добавь только краткое пояснение, почему он верный.',
+    'Strenges Antwortformat:',
+    '1. Erkenne die Sprache der Aufgabe still; gib weder die Sprache noch interne Hinweise aus.',
+    '2. Schreibe die gesamte Antwort einschließlich der kurzen Erklärung in der Sprache der Aufgabe.',
+    '3. Zeige keine Gedankengänge, Analyse, Vergleiche oder schrittweisen Lösungen.',
+    '4. Gib zuerst nur die endgültige geprüfte Antwort aus.',
+    '5. Wenn die Aufgabe Antwortoptionen enthält, gib den exakten Text jeder richtigen Option ohne Umformulierung aus.',
+    '6. Wenn mehrere Optionen richtig sind, gib jede richtige Option in einer neuen Zeile aus.',
+    '7. Wiederhole die endgültige Antwort nicht.',
+    '8. Ergänze danach nur eine kurze Erklärung, warum sie richtig ist.',
   ].join('\n');
 
   const DEFAULT_SETTINGS = {
@@ -263,6 +258,10 @@
     lastScreenshotArea: null,
     lastScreenshotDataUrl: '',
     lastAnswer: '',
+    apiKeyConfigured: false,
+    apiKeyStatusLoaded: false,
+    cancelRequested: false,
+    activeRequestId: '',
     highlightedOptions: [],
     abortController: null,
     settings: loadSettings(),
@@ -323,7 +322,7 @@
         }),
       );
     } catch (error) {
-      if (CONFIG.debug) safeLog('Не удалось сохранить настройки', error);
+      if (CONFIG.debug) safeLog('Einstellungen konnten nicht gespeichert werden.', error);
     }
   }
 
@@ -555,6 +554,54 @@
         color: #a6afad;
       }
 
+      .settings {
+        display: grid;
+        gap: 6px;
+        padding: 10px;
+        background: #f8fafc;
+        border: 1px solid #d8dee8;
+        border-radius: 7px;
+      }
+
+      .settings-title {
+        color: #111827;
+        font-size: 12px;
+        font-weight: 650;
+      }
+
+      .settings-hint,
+      .key-status {
+        color: #64748b;
+        font-size: 12px;
+      }
+
+      .key-status.is-configured {
+        color: #166534;
+      }
+
+      .settings-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+
+      .key-input {
+        min-width: 0;
+        flex: 1 1 220px;
+        min-height: 32px;
+        padding: 6px 8px;
+        color: #111827;
+        background: #ffffff;
+        border: 1px solid #cbd5e1;
+        border-radius: 7px;
+        font: inherit;
+      }
+
+      .key-input:focus-visible {
+        outline: 2px solid #93c5fd;
+        outline-offset: 1px;
+      }
+
       .actions {
         display: flex;
         flex-wrap: wrap;
@@ -608,7 +655,7 @@
 
       .answer:empty::before {
         color: #94a3b8;
-        content: "Ответ DeepSeek отображается здесь.";
+        content: "Die KI-Antwort wird hier angezeigt.";
       }
 
       .resize-handle {
@@ -677,14 +724,14 @@
     const panel = document.createElement('section');
     panel.className = 'assistant';
     panel.setAttribute('role', 'dialog');
-    panel.setAttribute('aria-label', 'ИИ-помощник для задач');
+    panel.setAttribute('aria-label', 'KI-Assistent für Aufgaben');
 
     const header = document.createElement('div');
     header.className = 'header';
 
     const title = document.createElement('div');
     title.className = 'title';
-    title.textContent = '';
+    title.textContent = 'KI-Assistent';
 
     const opacityControl = document.createElement('label');
     opacityControl.className = 'opacity-control';
@@ -696,20 +743,20 @@
     opacityInput.max = '100';
     opacityInput.step = '1';
     opacityInput.value = String(Math.round(state.settings.opacity * 100));
-    opacityInput.title = 'Настройка окна';
+    opacityInput.title = 'Fenstertransparenz';
 
     const collapseButton = document.createElement('button');
     collapseButton.type = 'button';
     collapseButton.className = 'icon-button';
     collapseButton.setAttribute('data-no-drag', 'true');
-    collapseButton.title = 'Свернуть';
+    collapseButton.title = 'Einklappen';
     collapseButton.textContent = '−';
 
     const closeButton = document.createElement('button');
     closeButton.type = 'button';
     closeButton.className = 'icon-button';
     closeButton.setAttribute('data-no-drag', 'true');
-    closeButton.title = 'Закрыть';
+    closeButton.title = 'Schließen';
     closeButton.textContent = '×';
 
     const content = document.createElement('div');
@@ -725,34 +772,75 @@
     const verifyButton = document.createElement('button');
     verifyButton.type = 'button';
     verifyButton.className = 'button';
-    verifyButton.textContent = 'Проверить';
+    verifyButton.textContent = 'Prüfen';
     verifyButton.disabled = true;
 
     const clearButton = document.createElement('button');
     clearButton.type = 'button';
     clearButton.className = 'button';
-    clearButton.textContent = 'Очистить';
+    clearButton.textContent = 'Leeren';
 
     const cancelButton = document.createElement('button');
     cancelButton.type = 'button';
     cancelButton.className = 'button danger';
-    cancelButton.textContent = 'Отменить';
+    cancelButton.textContent = 'Abbrechen';
     cancelButton.hidden = true;
 
     const answer = document.createElement('div');
     answer.className = 'answer';
-    answer.setAttribute('aria-label', 'Ответ DeepSeek');
+    answer.setAttribute('aria-label', 'KI-Antwort');
 
     const resizeHandle = document.createElement('div');
     resizeHandle.className = 'resize-handle';
     resizeHandle.setAttribute('role', 'separator');
-    resizeHandle.setAttribute('aria-label', 'Изменить размер окна');
-    resizeHandle.title = 'Изменить размер окна';
+    resizeHandle.setAttribute('aria-label', 'Fenstergröße ändern');
+    resizeHandle.title = 'Fenstergröße ändern';
+
+    const settings = document.createElement('section');
+    settings.className = 'settings';
+    settings.setAttribute('aria-label', 'KI-API-Schlüssel');
+
+    const settingsTitle = document.createElement('div');
+    settingsTitle.className = 'settings-title';
+    settingsTitle.textContent = 'KI-API-Schlüssel';
+
+    const settingsHint = document.createElement('div');
+    settingsHint.className = 'settings-hint';
+    settingsHint.textContent = 'Der Schlüssel wird lokal in der Erweiterung gespeichert und nicht angezeigt.';
+
+    const keyStatus = document.createElement('div');
+    keyStatus.className = 'key-status';
+    keyStatus.textContent = 'Status: wird geprüft ...';
+
+    const settingsRow = document.createElement('div');
+    settingsRow.className = 'settings-row';
+
+    const keyInput = document.createElement('input');
+    keyInput.className = 'key-input';
+    keyInput.type = 'password';
+    keyInput.autocomplete = 'new-password';
+    keyInput.spellcheck = false;
+    keyInput.placeholder = 'Schlüssel eingeben';
+    keyInput.setAttribute('aria-label', 'KI-API-Schlüssel');
+
+    const saveKeyButton = document.createElement('button');
+    saveKeyButton.type = 'button';
+    saveKeyButton.className = 'button primary';
+    saveKeyButton.textContent = 'Speichern';
+
+    const deleteKeyButton = document.createElement('button');
+    deleteKeyButton.type = 'button';
+    deleteKeyButton.className = 'button danger';
+    deleteKeyButton.textContent = 'Löschen';
+    deleteKeyButton.disabled = true;
+
+    settingsRow.append(keyInput, saveKeyButton, deleteKeyButton);
+    settings.append(settingsTitle, settingsHint, keyStatus, settingsRow);
 
     opacityControl.append(opacityInput);
     header.append(title, opacityControl, collapseButton, closeButton);
     actions.append(verifyButton, clearButton, cancelButton);
-    content.append(status, actions, answer);
+    content.append(settings, status, actions, answer);
     panel.append(header, content, resizeHandle);
     shadowRoot.append(panel);
     document.documentElement.append(host);
@@ -772,6 +860,10 @@
       resizeHandle,
       status,
       verifyButton,
+      deleteKeyButton,
+      keyInput,
+      keyStatus,
+      saveKeyButton,
     };
 
     [collapseButton, closeButton, opacityInput].forEach((element) => {
@@ -792,13 +884,16 @@
     clearButton.addEventListener('click', clearAnswer);
     cancelButton.addEventListener('click', cancelRequest);
     opacityInput.addEventListener('input', updateOpacity);
+    saveKeyButton.addEventListener('click', saveConfiguredApiKey);
+    deleteKeyButton.addEventListener('click', deleteConfiguredApiKey);
 
     makeWindowDraggable();
     makeWindowResizable();
     createScreenshotFrame();
     applyCollapsedState();
     clampWindowToViewport();
-    setStatus('Готово. Shift+Y - текст, Shift+A - скрин, Shift+R - настройка, Ctrl+Shift+R - рамка.');
+    setStatus('Bereit. Shift+Y: Text, Shift+A: Screenshot, Shift+R: Bereich, Ctrl+Shift+R: Rahmen.');
+    refreshApiKeyStatus();
   }
 
   function makeWindowDraggable() {
@@ -1000,7 +1095,7 @@
     }
     updateScreenshotFrame();
     saveSettings();
-    setStatus(state.settings.screenshotFrameVisible ? 'Рамка скрина показана.' : 'Рамка скрина скрыта. Shift+A всё равно сделает скрин сохраненной области.');
+    setStatus(state.settings.screenshotFrameVisible ? 'Screenshot-Rahmen angezeigt.' : 'Screenshot-Rahmen ausgeblendet. Shift+A verwendet weiterhin den gespeicherten Bereich.');
   }
 
   function toggleScreenshotAreaEditing() {
@@ -1014,7 +1109,7 @@
     state.isEditingScreenshotArea = isEditing;
     updateScreenshotFrame();
     saveSettings();
-    setStatus(isEditing ? 'Настройка области скрина: перетащите рамку или угол. Shift+R - сохранить.' : 'Область скрина сохранена. Shift+A отправит скрин.');
+    setStatus(isEditing ? 'Screenshot-Bereich: Rahmen oder Ecke ziehen. Shift+R speichert den Bereich.' : 'Screenshot-Bereich gespeichert. Shift+A sendet den Screenshot.');
   }
 
   function createScreenshotAreaInteractionShield(cursor) {
@@ -1223,7 +1318,7 @@
     state.elements.content.style.display = collapsed ? 'none' : '';
     state.elements.panel.classList.toggle('is-collapsed', collapsed);
     state.elements.collapseButton.textContent = collapsed ? '+' : '−';
-    state.elements.collapseButton.title = collapsed ? 'Развернуть' : 'Свернуть';
+    state.elements.collapseButton.title = collapsed ? 'Ausklappen' : 'Einklappen';
     applyWindowSizeToHost();
     if (!collapsed) clampWindowToViewport();
   }
@@ -1251,24 +1346,92 @@
     state.lastSelectionRange = getCurrentSelectionRange();
   }
 
-  function validateSelectedText(text) {
+  async function validateSelectedText(text) {
     if (!text) {
-      return 'Выделите текст задачи перед отправкой.';
+      return 'Markieren Sie zuerst den Aufgabentext.';
     }
 
     if (text.length > CONFIG.maxSelectedTextLength) {
-      return `Выделенный текст слишком длинный. Максимум: ${CONFIG.maxSelectedTextLength} символов.`;
+      return `Der markierte Text ist zu lang. Maximum: ${CONFIG.maxSelectedTextLength} Zeichen.`;
     }
 
     return validateApiKey();
   }
 
-  function validateApiKey() {
-    if (!CONFIG.apiKey || CONFIG.apiKey.trim() === '' || CONFIG.apiKey.trim() === 'sk-') {
-      return 'Добавьте API-ключ DeepSeek в CONFIG.apiKey в начале Snippet.';
+  async function validateApiKey() {
+    if (!canUseExtensionMessaging()) {
+      return 'Starten Sie die installierte Chrome-Erweiterung, um die KI-API zu verwenden.';
     }
 
-    return '';
+    const configured = state.apiKeyStatusLoaded ? state.apiKeyConfigured : await refreshApiKeyStatus();
+    return configured ? '' : 'Richten Sie zuerst einen KI-API-Schlüssel im Assistenten ein.';
+  }
+
+  function updateApiKeyStatus() {
+    const configured = state.apiKeyConfigured;
+    state.elements.keyStatus.textContent = configured ? 'Status: eingerichtet' : 'Status: nicht eingerichtet';
+    state.elements.keyStatus.classList.toggle('is-configured', configured);
+    state.elements.deleteKeyButton.disabled = !configured;
+  }
+
+  async function refreshApiKeyStatus() {
+    if (!canUseExtensionMessaging()) {
+      state.apiKeyStatusLoaded = true;
+      state.apiKeyConfigured = false;
+      state.elements.keyStatus.textContent = 'Status: nur im installierten Add-on verfügbar';
+      state.elements.deleteKeyButton.disabled = true;
+      return false;
+    }
+
+    try {
+      const response = await sendExtensionMessage({ type: 'AI_PUZZLE_GET_API_KEY_STATUS' });
+      if (!response?.ok) throw new Error(response?.error || 'Status konnte nicht gelesen werden.');
+      state.apiKeyConfigured = Boolean(response.configured);
+      state.apiKeyStatusLoaded = true;
+      updateApiKeyStatus();
+      return state.apiKeyConfigured;
+    } catch (error) {
+      state.apiKeyStatusLoaded = false;
+      state.elements.keyStatus.textContent = 'Status: nicht verfügbar';
+      state.elements.deleteKeyButton.disabled = true;
+      return false;
+    }
+  }
+
+  async function saveConfiguredApiKey() {
+    const apiKey = state.elements.keyInput.value.trim();
+    if (!apiKey) {
+      setStatus('Geben Sie zuerst einen KI-API-Schlüssel ein.', 'error');
+      return;
+    }
+
+    state.elements.saveKeyButton.disabled = true;
+    try {
+      const response = await sendExtensionMessage({ type: 'AI_PUZZLE_SAVE_API_KEY', apiKey });
+      if (!response?.ok) throw new Error(response?.error || 'Der Schlüssel konnte nicht gespeichert werden.');
+      state.elements.keyInput.value = '';
+      state.apiKeyConfigured = true;
+      state.apiKeyStatusLoaded = true;
+      updateApiKeyStatus();
+      setStatus('Der KI-API-Schlüssel wurde lokal gespeichert.', 'success');
+    } catch (error) {
+      showError(error?.message || 'Der KI-API-Schlüssel konnte nicht gespeichert werden.');
+    } finally {
+      state.elements.saveKeyButton.disabled = false;
+    }
+  }
+
+  async function deleteConfiguredApiKey() {
+    try {
+      const response = await sendExtensionMessage({ type: 'AI_PUZZLE_DELETE_API_KEY' });
+      if (!response?.ok) throw new Error(response?.error || 'Der Schlüssel konnte nicht gelöscht werden.');
+      state.apiKeyConfigured = false;
+      state.apiKeyStatusLoaded = true;
+      updateApiKeyStatus();
+      setStatus('Der gespeicherte KI-API-Schlüssel wurde gelöscht.', 'success');
+    } catch (error) {
+      showError(error?.message || 'Der KI-API-Schlüssel konnte nicht gelöscht werden.');
+    }
   }
 
   function isHotkeyPressed(event) {
@@ -1372,8 +1535,11 @@
     solveSelectedText();
   }
 
-  async function requestDeepSeek(text, previousAnswer = '', imageDataUrl = '') {
+  async function requestApi(text, previousAnswer = '', imageDataUrl = '') {
     state.abortController = new AbortController();
+    state.cancelRequested = false;
+    const requestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    state.activeRequestId = requestId;
     const timeoutId = window.setTimeout(() => {
       if (state.abortController) state.abortController.abort();
     }, CONFIG.timeoutMs);
@@ -1392,8 +1558,8 @@
         };
       }
 
-      safeLog(imageDataUrl ? 'Запрос со скрином отправлен' : 'Запрос с текстом отправлен');
-      const response = await sendDeepSeekRequest(requestBody);
+      safeLog(imageDataUrl ? 'Screenshot-Anfrage gesendet' : 'Text-Anfrage gesendet');
+      const response = await sendApiRequest(requestBody, requestId);
 
       if (!response.ok) {
         throw new Error(getHttpErrorMessage(response.status, response.rawBody));
@@ -1401,51 +1567,51 @@
 
       const rawBody = response.rawBody;
       if (!rawBody.trim()) {
-        throw new Error('DeepSeek вернул пустой ответ.');
+        throw new Error('Die KI hat eine leere Antwort zurückgegeben.');
       }
 
       let data;
       try {
         data = JSON.parse(rawBody);
       } catch (error) {
-        throw new Error('DeepSeek вернул некорректный JSON.');
+        throw new Error('Die KI hat ungültige Antwortdaten zurückgegeben.');
       }
 
       const content = data?.choices?.[0]?.message?.content;
       if (typeof content !== 'string' || content.trim() === '') {
-        throw new Error('DeepSeek вернул неожиданный формат ответа.');
+        throw new Error('Die KI-Antwort hat ein unerwartetes Format.');
       }
 
-      safeLog('Ответ получен');
+      safeLog('Antwort erhalten');
       return content.trim();
     } catch (error) {
       if (error?.name === 'AbortError') {
-        throw new Error('Время ожидания ответа истекло.');
+        throw new Error(state.cancelRequested ? 'Die Anfrage wurde abgebrochen.' : 'Die Antwortzeit ist abgelaufen.');
       }
 
       if (isLikelyCorsOrNetworkError(error)) {
-        throw new Error('Браузер заблокировал прямой запрос к DeepSeek API. Возможно, потребуется локальный сервер-посредник.');
+        throw new Error('Die KI-API war nicht erreichbar. Prüfen Sie die Netzwerkverbindung und die Erweiterungsberechtigungen.');
       }
 
       throw error;
     } finally {
       window.clearTimeout(timeoutId);
       state.abortController = null;
+      state.activeRequestId = '';
     }
   }
 
-  async function sendDeepSeekRequest(body) {
+  async function sendApiRequest(body, requestId) {
     if (canUseExtensionMessaging()) {
       const response = await sendExtensionMessage({
-        type: 'AI_PUZZLE_REQUEST_DEEPSEEK',
-        apiUrl: CONFIG.apiUrl,
-        apiKey: CONFIG.apiKey,
+        type: 'AI_PUZZLE_REQUEST_API',
+        requestId,
         timeoutMs: CONFIG.timeoutMs,
         body,
       });
 
       if (!response?.ok) {
-        const error = new Error(response?.error || 'Фоновый процесс расширения не смог выполнить запрос.');
+        const error = new Error(response?.error || 'Der Erweiterungsdienst konnte die Anfrage nicht ausführen.');
         error.name = response?.name || '';
         throw error;
       }
@@ -1457,21 +1623,7 @@
       };
     }
 
-    const response = await fetch(CONFIG.apiUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${CONFIG.apiKey}`,
-      },
-      body: JSON.stringify(body),
-      signal: state.abortController.signal,
-    });
-
-    return {
-      ok: response.ok,
-      status: response.status,
-      rawBody: await response.text(),
-    };
+    throw new Error('Die KI-API ist im DevTools-Snippet-Modus nicht verfügbar.');
   }
 
   function createRequestMessages(text, previousAnswer) {
@@ -1496,15 +1648,15 @@
       {
         role: 'user',
         content: [
-          'Исходная задача:',
+          'Ursprüngliche Aufgabe:',
           text,
           '',
-          'Предыдущий ответ ИИ:',
+          'Vorherige KI-Antwort:',
           previousAnswer,
           '',
-          'Определи язык текста задания молча. Весь ответ, включая краткое пояснение, пиши строго на языке задания.',
-          'Сначала верни только окончательный проверенный ответ. Если правильных вариантов несколько, каждый вариант пиши с новой строки.',
-          'Потом добавь только короткое пояснение. Не показывай анализ, сравнение или ход рассуждений.',
+          'Erkenne die Sprache der Aufgabe still. Schreibe die gesamte Antwort einschließlich der kurzen Erklärung in der Sprache der Aufgabe.',
+          'Gib zuerst nur die endgültige geprüfte Antwort aus. Bei mehreren richtigen Optionen jeweils eine Option pro Zeile.',
+          'Füge danach nur eine kurze Erklärung hinzu. Zeige keine Analyse, Vergleiche oder Gedankengänge.',
         ].join('\n'),
       },
     ];
@@ -1523,14 +1675,14 @@
             {
               type: 'text',
               text: [
-                text || 'Исходная задача находится на скриншоте.',
+                text || 'Die ursprüngliche Aufgabe befindet sich im Screenshot.',
                 '',
-                'Предыдущий ответ ИИ:',
+                'Vorherige KI-Antwort:',
                 previousAnswer,
                 '',
-                'Определи язык текста задания молча. Весь ответ, включая краткое пояснение, пиши строго на языке задания.',
-                'Сначала верни только окончательный проверенный ответ. Если правильных вариантов несколько, каждый вариант пиши с новой строки.',
-                'Потом добавь только короткое пояснение. Не показывай анализ, сравнение или ход рассуждений.',
+                'Erkenne die Sprache der Aufgabe still. Schreibe die gesamte Antwort einschließlich der kurzen Erklärung in der Sprache der Aufgabe.',
+                'Gib zuerst nur die endgültige geprüfte Antwort aus. Bei mehreren richtigen Optionen jeweils eine Option pro Zeile.',
+                'Füge danach nur eine kurze Erklärung hinzu. Zeige keine Analyse, Vergleiche oder Gedankengänge.',
               ].join('\n'),
             },
             {
@@ -1555,7 +1707,7 @@
         content: [
           {
             type: 'text',
-            text: text || 'Реши задачу на скриншоте. Определи язык текста задания молча. Если есть варианты ответа, верни только точный текст каждого правильного варианта, который виден в задании. Если правильных вариантов несколько, каждый вариант пиши с новой строки. Не добавляй язык, пояснение, заголовки, метки, нумерацию, перевод, анализ или ход рассуждений.',
+            text: text || 'Löse die Aufgabe im Screenshot. Erkenne die Sprache still. Wenn Antwortoptionen vorhanden sind, gib nur den exakten Text jeder sichtbaren richtigen Option aus. Bei mehreren richtigen Optionen jeweils eine Option pro Zeile. Füge keine Sprache, Erklärung, Überschrift, Markierung, Nummerierung, Übersetzung, Analyse oder Gedankengänge hinzu.',
           },
           {
             type: 'image_url',
@@ -1576,12 +1728,12 @@
   function sendExtensionMessage(message) {
     return new Promise((resolve, reject) => {
       if (!canUseExtensionMessaging()) {
-        reject(new Error('Этот режим работает только в расширении Chrome.'));
+        reject(new Error('Diese Funktion ist nur in der installierten Chrome-Erweiterung verfügbar.'));
         return;
       }
 
       const timeoutId = window.setTimeout(() => {
-        const error = new Error('Время ожидания ответа фонового процесса истекло.');
+        const error = new Error('Die Antwort des Erweiterungsdienstes ist abgelaufen.');
         error.name = 'AbortError';
         reject(error);
       }, CONFIG.timeoutMs + 2000);
@@ -1651,16 +1803,16 @@
     if (apiError) return `HTTP ${status}: ${apiError}`;
 
     const messages = {
-      400: 'HTTP 400: некорректный запрос к DeepSeek API.',
-      401: 'HTTP 401: неверный или отсутствующий API-ключ DeepSeek.',
-      403: 'HTTP 403: доступ к DeepSeek API запрещен.',
-      429: 'HTTP 429: слишком много запросов. Попробуйте позже.',
-      500: 'HTTP 500: ошибка сервера DeepSeek.',
+      400: 'HTTP 400: ungültige Anfrage an die KI-API.',
+      401: 'HTTP 401: KI-API-Schlüssel fehlt oder ist ungültig.',
+      403: 'HTTP 403: Zugriff auf die KI-API verweigert.',
+      429: 'HTTP 429: zu viele Anfragen. Versuchen Sie es später erneut.',
+      500: 'HTTP 500: Serverfehler der KI-API.',
     };
 
     if (messages[status]) return messages[status];
-    if (status >= 500) return `HTTP ${status}: ошибка сервера DeepSeek.`;
-    return `HTTP ${status}: DeepSeek API вернул ошибку.`;
+    if (status >= 500) return `HTTP ${status}: Serverfehler der KI-API.`;
+    return `HTTP ${status}: Die KI-API hat einen Fehler zurückgegeben.`;
   }
 
   function getApiErrorMessage(rawBody) {
@@ -2130,18 +2282,18 @@
 
   async function solveScreenshotArea() {
     if (state.isLoading) {
-      setStatus('Предыдущий запрос ещё выполняется.', 'error');
+      setStatus('Die vorherige Anfrage wird noch ausgeführt.', 'error');
       return;
     }
 
-    const validationError = validateApiKey();
+    const validationError = await validateApiKey();
     if (validationError) {
       showError(validationError);
       return;
     }
 
     if (!canUseExtensionMessaging()) {
-      showError('Скрин работает только в установленном расширении Chrome.');
+      showError('Screenshots sind nur in der installierten Chrome-Erweiterung verfügbar.');
       return;
     }
 
@@ -2155,20 +2307,20 @@
     clearHighlightedOptions();
     state.isLoading = true;
     setLoadingState(true, 'screenshot');
-    setStatus('Скрин: снимаю сохраненную область...');
-    safeLog('Область скрина подготовлена', area);
+    setStatus('Screenshot: gespeicherten Bereich erfassen ...');
+    safeLog('Screenshot-Bereich vorbereitet', area);
 
     try {
       const imageDataUrl = await captureScreenshotArea(area);
       state.lastScreenshotDataUrl = imageDataUrl;
-      setStatus('Скрин: отправляю картинку в DeepSeek...');
-      const answer = await requestDeepSeek('', '', imageDataUrl);
+      setStatus('Screenshot: Bild an die KI senden ...');
+      const answer = await requestApi('', '', imageDataUrl);
       showAnswer(answer);
       const highlightedCount = highlightCorrectOptions(answer);
-      setStatus(highlightedCount > 0 ? `Скрин: ответ получен. Подчеркнуто вариантов: ${highlightedCount}.` : 'Скрин: ответ получен. Варианты для подчеркивания не найдены.', 'success');
+      setStatus(highlightedCount > 0 ? `Screenshot: Antwort erhalten. Markierte Optionen: ${highlightedCount}.` : 'Screenshot: Antwort erhalten. Keine passenden Optionen gefunden.', 'success');
     } catch (error) {
-      safeLog('Ошибка запроса со скрином');
-      showError(error?.message || 'Неизвестная ошибка.');
+      safeLog('Fehler bei der Screenshot-Anfrage');
+      showError(error?.message || 'Unbekannter Fehler.');
     } finally {
       state.isLoading = false;
       setLoadingState(false);
@@ -2182,7 +2334,7 @@
       await waitForPaint();
       const response = await sendExtensionMessage({ type: 'AI_PUZZLE_CAPTURE_VISIBLE_TAB' });
       if (!response?.ok || !response.dataUrl) {
-        throw new Error(response?.error || 'Не удалось сделать скриншот вкладки.');
+        throw new Error(response?.error || 'Der Screenshot der Registerkarte konnte nicht erstellt werden.');
       }
 
       return cropScreenshotDataUrl(response.dataUrl, area);
@@ -2232,21 +2384,21 @@
     return new Promise((resolve, reject) => {
       const image = new Image();
       image.onload = () => resolve(image);
-      image.onerror = () => reject(new Error('Не удалось обработать скриншот.'));
+      image.onerror = () => reject(new Error('Der Screenshot konnte nicht verarbeitet werden.'));
       image.src = dataUrl;
     });
   }
 
   async function solveSelectedText() {
     if (state.isLoading) {
-      setStatus('Предыдущий запрос ещё выполняется.', 'error');
+      setStatus('Die vorherige Anfrage wird noch ausgeführt.', 'error');
       return;
     }
 
     rememberSelection();
     const selectedText = getCurrentSelection() || state.lastSelectedText;
     const selectedRange = getCurrentSelectionRange() || state.lastSelectionRange;
-    const validationError = validateSelectedText(selectedText);
+    const validationError = await validateSelectedText(selectedText);
     if (validationError) {
       showError(validationError);
       return;
@@ -2261,17 +2413,17 @@
     clearHighlightedOptions();
     state.isLoading = true;
     setLoadingState(true, 'solve');
-    setStatus('Текст: отправляю выделение в DeepSeek...');
-    safeLog('Текст подготовлен');
+    setStatus('Text: Markierung an die KI senden ...');
+    safeLog('Text vorbereitet');
 
     try {
-      const answer = await requestDeepSeek(selectedText);
+      const answer = await requestApi(selectedText);
       showAnswer(answer);
       const highlightedCount = highlightCorrectOptions(answer);
-      setStatus(highlightedCount > 0 ? `Текст: ответ получен. Подчеркнуто вариантов: ${highlightedCount}.` : 'Текст: ответ получен. Варианты для подчеркивания не найдены.', 'success');
+      setStatus(highlightedCount > 0 ? `Text: Antwort erhalten. Markierte Optionen: ${highlightedCount}.` : 'Text: Antwort erhalten. Keine passenden Optionen gefunden.', 'success');
     } catch (error) {
-      safeLog('Ошибка запроса');
-      showError(error?.message || 'Неизвестная ошибка.');
+      safeLog('Fehler bei der Anfrage');
+      showError(error?.message || 'Unbekannter Fehler.');
     } finally {
       state.isLoading = false;
       setLoadingState(false);
@@ -2280,12 +2432,12 @@
 
   async function verifyLastAnswer() {
     if (state.isLoading) {
-      setStatus('Предыдущий запрос ещё выполняется.', 'error');
+      setStatus('Die vorherige Anfrage wird noch ausgeführt.', 'error');
       return;
     }
 
     if (!state.lastAnswer) {
-      showError('Сначала получите ответ, который нужно проверить.');
+      showError('Erhalten Sie zuerst eine Antwort, die geprüft werden soll.');
       return;
     }
 
@@ -2293,23 +2445,23 @@
     const taskText = isScreenshotVerify ? '' : state.lastSelectedText || getCurrentSelection();
 
     if (isScreenshotVerify) {
-      const validationError = validateApiKey();
+      const validationError = await validateApiKey();
       if (validationError) {
         showError(validationError);
         return;
       }
 
       if (!state.lastScreenshotDataUrl) {
-        showError('Не найден последний скрин для проверки. Сначала отправьте задачу через Shift+A.');
+        showError('Kein letzter Screenshot zum Prüfen vorhanden. Senden Sie zuerst eine Aufgabe mit Shift+A.');
         return;
       }
     } else {
       if (!taskText) {
-        showError('Не найден исходный текст задачи. Сначала выделите задачу и нажмите Shift+Y.');
+        showError('Der ursprüngliche Aufgabentext wurde nicht gefunden. Markieren Sie die Aufgabe und drücken Sie Shift+Y.');
         return;
       }
 
-      const validationError = validateSelectedText(taskText);
+      const validationError = await validateSelectedText(taskText);
       if (validationError) {
         showError(validationError);
         return;
@@ -2320,16 +2472,16 @@
     clearHighlightedOptions();
     state.isLoading = true;
     setLoadingState(true, 'verify');
-    setStatus(isScreenshotVerify ? 'Перепроверяю ответ по скрину в DeepSeek...' : 'Перепроверяю ответ в DeepSeek...');
+    setStatus(isScreenshotVerify ? 'Antwort anhand des Screenshots erneut prüfen ...' : 'Antwort erneut prüfen ...');
 
     try {
-      const verifiedAnswer = await requestDeepSeek(taskText, answerToVerify, isScreenshotVerify ? state.lastScreenshotDataUrl : '');
+      const verifiedAnswer = await requestApi(taskText, answerToVerify, isScreenshotVerify ? state.lastScreenshotDataUrl : '');
       showAnswer(verifiedAnswer);
       const highlightedCount = highlightCorrectOptions(verifiedAnswer);
-      setStatus(highlightedCount > 0 ? `Проверка завершена. Подчеркнуто вариантов: ${highlightedCount}.` : 'Проверка завершена. Варианты для подчеркивания не найдены.', 'success');
+      setStatus(highlightedCount > 0 ? `Prüfung abgeschlossen. Markierte Optionen: ${highlightedCount}.` : 'Prüfung abgeschlossen. Keine passenden Optionen gefunden.', 'success');
     } catch (error) {
-      safeLog('Ошибка запроса');
-      showError(error?.message || 'Неизвестная ошибка.');
+      safeLog('Fehler bei der Anfrage');
+      showError(error?.message || 'Unbekannter Fehler.');
     } finally {
       state.isLoading = false;
       setLoadingState(false);
@@ -2338,14 +2490,21 @@
 
   function setLoadingState(isLoading, mode = '') {
     state.elements.verifyButton.disabled = isLoading || !state.lastAnswer;
-    state.elements.verifyButton.textContent = isLoading && mode === 'verify' ? 'Проверяю...' : 'Проверить';
+    state.elements.verifyButton.textContent = isLoading && mode === 'verify' ? 'Prüfe ...' : 'Prüfen';
     state.elements.cancelButton.hidden = !isLoading;
   }
 
   function cancelRequest() {
+    state.cancelRequested = true;
     if (state.abortController) {
       state.abortController.abort();
-      setStatus('Запрос отменяется...');
+      setStatus('Anfrage wird abgebrochen ...');
+    }
+    if (state.activeRequestId && canUseExtensionMessaging()) {
+      sendExtensionMessage({
+        type: 'AI_PUZZLE_CANCEL_REQUEST',
+        requestId: state.activeRequestId,
+      }).catch(() => {});
     }
   }
 
@@ -2362,7 +2521,7 @@
   }
 
   function showError(error) {
-    setStatus(`Ошибка: ${error}`, 'error');
+    setStatus(`Fehler: ${error}`, 'error');
   }
 
   function clearAnswer() {
@@ -2372,7 +2531,7 @@
     state.elements.answer.textContent = '';
     clearHighlightedOptions();
     setLoadingState(false);
-    setStatus('Готово. Shift+Y - текст, Shift+A - скрин, Shift+R - настройка, Ctrl+Shift+R - рамка.');
+    setStatus('Bereit. Shift+Y: Text, Shift+A: Screenshot, Shift+R: Bereich, Ctrl+Shift+R: Rahmen.');
   }
 
   function show() {
@@ -2385,7 +2544,7 @@
     state.settings.collapsed = true;
     applyCollapsedState();
     clampWindowToViewport();
-    setStatus(state.isLoading ? 'Запрос выполняется...' : 'Готово. Shift+Y - текст, Shift+A - скрин, Shift+R - настройка, Ctrl+Shift+R - рамка.');
+    setStatus(state.isLoading ? 'Anfrage wird ausgeführt ...' : 'Bereit. Shift+Y: Text, Shift+A: Screenshot, Shift+R: Bereich, Ctrl+Shift+R: Rahmen.');
   }
 
   function hide() {
@@ -2482,7 +2641,7 @@
       isMounted,
     };
 
-    safeLog('Скрипт запущен');
+    safeLog('Skript gestartet');
   }
 
   init();

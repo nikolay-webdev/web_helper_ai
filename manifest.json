@@ -1,11 +1,12 @@
 {
   "manifest_version": 3,
-  "name": "AI Puzzle Assistant",
-  "description": "Runs the AI puzzle assistant on the current page.",
+  "name": "Web Helper AI",
+  "description": "Ein lokaler KI-Assistent für Aufgaben auf Webseiten.",
   "version": "1.0.0",
   "permissions": [
     "activeTab",
-    "scripting"
+    "scripting",
+    "storage"
   ],
   "host_permissions": [
     "https://api.deepseek.com/*"
@@ -27,14 +28,14 @@
     "service_worker": "background.js"
   },
   "action": {
-    "default_title": "Run AI Puzzle Assistant"
+    "default_title": "Web Helper AI starten"
   },
   "commands": {
     "run-assistant": {
       "suggested_key": {
         "default": "Ctrl+Shift+X"
       },
-      "description": "Run AI Puzzle Assistant on the current page"
+      "description": "Web Helper AI auf der aktuellen Seite starten"
     }
   }
 }

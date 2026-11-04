@@ -1,6 +1,9 @@
 'use strict';
 
 const ASSISTANT_SCRIPT = 'ai-puzzle-assistant.snippet.js';
+const API_URL = 'https://api.deepseek.com/v1/chat/completions';
+const API_KEY_STORAGE_KEY = 'webHelperAiApiKey';
+const activeRequests = new Map();
 
 async function getActiveTab() {
   const tabs = await chrome.tabs.query({
@@ -23,7 +26,7 @@ async function runAssistant(tab) {
       world: 'ISOLATED',
     });
   } catch (error) {
-    console.warn('AI Puzzle Assistant could not run on this page.', error);
+    console.warn('Web Helper AI konnte auf dieser Seite nicht gestartet werden.', error);
   }
 }
 
@@ -40,17 +43,46 @@ async function captureVisibleTab(sender) {
   });
 }
 
-async function requestDeepSeek(message) {
+async function getStoredApiKey() {
+  const stored = await chrome.storage.local.get(API_KEY_STORAGE_KEY);
+  return typeof stored?.[API_KEY_STORAGE_KEY] === 'string' ? stored[API_KEY_STORAGE_KEY].trim() : '';
+}
+
+async function saveApiKey(apiKey) {
+  const normalizedKey = typeof apiKey === 'string' ? apiKey.trim() : '';
+  if (!normalizedKey) {
+    throw new Error('Bitte geben Sie einen KI-API-Schlüssel ein.');
+  }
+
+  await chrome.storage.local.set({
+    [API_KEY_STORAGE_KEY]: normalizedKey,
+  });
+}
+
+async function deleteApiKey() {
+  await chrome.storage.local.remove(API_KEY_STORAGE_KEY);
+}
+
+async function requestApi(message) {
+  const apiKey = await getStoredApiKey();
+  if (!apiKey) {
+    const error = new Error('Kein KI-API-Schlüssel eingerichtet. Öffnen Sie die Einstellungen des Assistenten.');
+    error.name = 'MissingApiKey';
+    throw error;
+  }
+
   const controller = new AbortController();
   const timeoutMs = Number(message.timeoutMs) || 60000;
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  const requestId = String(message.requestId || '');
+  if (requestId) activeRequests.set(requestId, controller);
 
   try {
-    const response = await fetch(message.apiUrl, {
+    const response = await fetch(API_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${message.apiKey}`,
+        Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify(message.body),
       signal: controller.signal,
@@ -63,13 +95,21 @@ async function requestDeepSeek(message) {
     };
   } finally {
     clearTimeout(timeoutId);
+    if (requestId) activeRequests.delete(requestId);
   }
+}
+
+async function cancelApiRequest(message) {
+  const requestId = String(message.requestId || '');
+  const controller = activeRequests.get(requestId);
+  if (controller) controller.abort();
+  return { ok: true, cancelled: Boolean(controller) };
 }
 
 async function relayFrameHotkey(message, sender) {
   const tabId = sender?.tab?.id;
   if (!Number.isInteger(tabId)) {
-    throw new Error('Не удалось определить вкладку для горячей клавиши.');
+    throw new Error('Die Registerkarte für den Tastaturbefehl konnte nicht ermittelt werden.');
   }
 
   return chrome.tabs.sendMessage(
@@ -103,8 +143,29 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
-  if (message?.type === 'AI_PUZZLE_REQUEST_DEEPSEEK') {
-    requestDeepSeek(message)
+  if (message?.type === 'AI_PUZZLE_GET_API_KEY_STATUS') {
+    getStoredApiKey()
+      .then((apiKey) => sendResponse({ ok: true, configured: Boolean(apiKey) }))
+      .catch((error) => sendResponse({ ok: false, error: 'Der Status des KI-API-Schlüssels konnte nicht gelesen werden.' }));
+    return true;
+  }
+
+  if (message?.type === 'AI_PUZZLE_SAVE_API_KEY') {
+    saveApiKey(message.apiKey)
+      .then(() => sendResponse({ ok: true, configured: true }))
+      .catch((error) => sendResponse({ ok: false, error: error?.message || 'Der KI-API-Schlüssel konnte nicht gespeichert werden.' }));
+    return true;
+  }
+
+  if (message?.type === 'AI_PUZZLE_DELETE_API_KEY') {
+    deleteApiKey()
+      .then(() => sendResponse({ ok: true, configured: false }))
+      .catch((error) => sendResponse({ ok: false, error: 'Der KI-API-Schlüssel konnte nicht gelöscht werden.' }));
+    return true;
+  }
+
+  if (message?.type === 'AI_PUZZLE_REQUEST_API') {
+    requestApi(message)
       .then((result) =>
         sendResponse({
           ok: true,
@@ -120,6 +181,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           name: error?.name || '',
         }),
       );
+    return true;
+  }
+
+  if (message?.type === 'AI_PUZZLE_CANCEL_REQUEST') {
+    cancelApiRequest(message)
+      .then((result) => sendResponse(result))
+      .catch((error) => sendResponse({ ok: false, error: 'Die Anfrage konnte nicht abgebrochen werden.' }));
     return true;
   }
 
