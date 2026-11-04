@@ -33,4 +33,4 @@
 
 ## Sicherheit
 
-Der lokale Schlüssel ist kein vollständig geschützter Geheimnisspeicher. Prüfen Sie vor einer Veröffentlichung den gesamten Arbeitsbaum und die Git-Historie. Ein zuvor verwendeter Schlüssel muss vom Eigentümer ersetzt werden; die alte Historie darf erst nach einer geprüften Sicherung und ausdrücklicher Entscheidung umgeschrieben werden.
+Der lokale Schlüssel ist kein vollständig geschützter Geheimnisspeicher. Übertragen Sie keine vertraulichen Inhalte und prüfen Sie die Erweiterung vor einer Veröffentlichung manuell.
